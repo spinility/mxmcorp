@@ -19,7 +19,8 @@ import time
 import random
 import urllib.robotparser
 import requests
-from lxml import html
+from lxml import html, etree
+import elementpath
 
 from cortex.departments.intelligence.xpath_source_registry import XPathSource
 
@@ -87,7 +88,7 @@ class StealthWebCrawler:
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ]
 
-    def __init__(self, storage_dir: str = "cortex/data/scraped_data"):
+    def __init__(self, storage_dir: str = "cortex/data/scraped_data", xpath_version: str = "2.0"):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
@@ -97,6 +98,9 @@ class StealthWebCrawler:
         # Cache de robots.txt
         self.robots_cache: Dict[str, urllib.robotparser.RobotFileParser] = {}
 
+        # XPath version (1.0 or 2.0)
+        self.xpath_version = xpath_version
+
     def _get_random_user_agent(self) -> str:
         """Retourne un user-agent aléatoire"""
         return random.choice(self.USER_AGENTS)
@@ -105,6 +109,38 @@ class StealthWebCrawler:
         """Délai randomisé pour paraître humain"""
         delay = random.uniform(min_seconds, max_seconds)
         time.sleep(delay)
+
+    def _evaluate_xpath(self, tree: etree._Element, xpath: str) -> List[Any]:
+        """
+        Évalue un XPath selon la version configurée
+
+        Args:
+            tree: Arbre HTML parsé (lxml)
+            xpath: Expression XPath
+
+        Returns:
+            Liste de résultats
+        """
+        if self.xpath_version == "2.0":
+            # XPath 2.0 via elementpath
+            try:
+                # elementpath nécessite un ElementTree, pas un Element
+                # Convertir l'arbre lxml en ElementTree standard
+                root = tree.getroottree().getroot()
+                selector = elementpath.select(root, xpath, namespaces=None)
+
+                # Convertir le résultat en liste
+                if hasattr(selector, '__iter__') and not isinstance(selector, (str, bytes)):
+                    return list(selector)
+                else:
+                    return [selector] if selector is not None else []
+            except Exception as e:
+                # Fallback vers XPath 1.0 si erreur
+                print(f"⚠️  XPath 2.0 failed, falling back to 1.0: {e}")
+                return tree.xpath(xpath)
+        else:
+            # XPath 1.0 via lxml
+            return tree.xpath(xpath)
 
     def _can_fetch(self, url: str) -> bool:
         """
@@ -222,8 +258,8 @@ class StealthWebCrawler:
             # Parse HTML
             tree = html.fromstring(response.content)
 
-            # Appliquer XPath
-            elements = tree.xpath(source.xpath)
+            # Appliquer XPath (avec support 2.0)
+            elements = self._evaluate_xpath(tree, source.xpath)
 
             if not elements:
                 return ValidationResult(
@@ -301,7 +337,7 @@ class StealthWebCrawler:
 
         # Parse
         tree = html.fromstring(response.content)
-        elements = tree.xpath(source.xpath)
+        elements = self._evaluate_xpath(tree, source.xpath)
 
         # Extraire données
         data = []
