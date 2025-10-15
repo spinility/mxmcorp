@@ -21,6 +21,12 @@ except ImportError:
 from .config_loader import get_config
 from .model_router import ModelTier
 
+# Import cache (optionnel)
+try:
+    from cortex.cache.cache_manager import CacheManager
+except ImportError:
+    CacheManager = None
+
 
 @dataclass
 class LLMResponse:
@@ -39,7 +45,7 @@ class LLMClient:
     Interface commune pour OpenAI, DeepSeek, et Anthropic
     """
 
-    def __init__(self):
+    def __init__(self, use_cache: bool = True):
         self.config = get_config()
 
         # Initialiser les clients
@@ -47,6 +53,17 @@ class LLMClient:
 
         # Cache des coûts par modèle
         self.models_config = self.config.models.get("models", {})
+
+        # Initialiser le cache
+        self.use_cache = use_cache
+        if use_cache and CacheManager:
+            try:
+                self.cache = CacheManager()
+            except Exception as e:
+                print(f"Warning: Cache initialization failed: {e}")
+                self.cache = None
+        else:
+            self.cache = None
 
     def _init_clients(self):
         """Initialise les clients API"""
@@ -96,14 +113,41 @@ class LLMClient:
         Returns:
             LLMResponse avec le contenu et les métadonnées
         """
+        # Vérifier le cache d'abord
+        if self.cache:
+            cache_result = self.cache.get(messages, tier.value, max_tokens)
+            if cache_result.hit:
+                # Cache hit! Retourner la réponse cachée
+                return LLMResponse(
+                    content=cache_result.content,
+                    model=f"{tier.value} (cached from {cache_result.level.value})",
+                    tokens_input=0,  # Pas de tokens utilisés
+                    tokens_output=0,
+                    cost=0.0,  # Pas de coût
+                    finish_reason="cached"
+                )
+
+        # Cache miss - appeler le LLM réel
         if tier == ModelTier.NANO:
-            return self._complete_openai(messages, max_tokens, temperature, **kwargs)
+            response = self._complete_openai(messages, max_tokens, temperature, **kwargs)
         elif tier == ModelTier.DEEPSEEK:
-            return self._complete_deepseek(messages, max_tokens, temperature, **kwargs)
+            response = self._complete_deepseek(messages, max_tokens, temperature, **kwargs)
         elif tier == ModelTier.CLAUDE:
-            return self._complete_anthropic(messages, max_tokens, temperature, **kwargs)
+            response = self._complete_anthropic(messages, max_tokens, temperature, **kwargs)
         else:
             raise ValueError(f"Unknown model tier: {tier}")
+
+        # Sauvegarder dans le cache
+        if self.cache:
+            self.cache.set(
+                messages,
+                tier.value,
+                response.content,
+                response.tokens_input + response.tokens_output,
+                response.cost
+            )
+
+        return response
 
     def _complete_openai(
         self,
