@@ -150,7 +150,7 @@ class CortexCLI:
                     messages=messages,
                     tier=selection.tier,
                     max_tokens=2048,
-                    temperature=0.7
+                    temperature=1.0  # DeepSeek reasoner ne supporte que temperature=1
                 )
 
                 response_text = response.content

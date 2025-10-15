@@ -270,9 +270,13 @@ class LLMClient:
                 "model": model_name,
                 "messages": messages,
                 "max_completion_tokens": max_tokens,
-                "temperature": temperature,
                 **kwargs
             }
+
+            # Ajouter temperature seulement si différent de 1.0
+            # deepseek-reasoner ne supporte que temperature=1 (default)
+            if temperature != 1.0:
+                params["temperature"] = temperature
 
             # Ajouter tools si fournis
             if tools:
