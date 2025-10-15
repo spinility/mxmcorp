@@ -3,7 +3,59 @@
 Direct Scrape - Extraction XPath sans passer par le LLM
 
 Utilise directement StealthWebCrawler avec XPath 2.0
-Aucun coût de tokens LLM, exécution instantanée
+✅ Aucun coût API LLM (100% GRATUIT!)
+✅ Exécution instantanée (pas de latence LLM)
+✅ XPath 2.0 supporté (string-join, functions, etc.)
+✅ Stealth crawler (user-agent rotation, delays)
+
+Usage:
+    # Simple extraction
+    python3 -m cortex.tools.direct_scrape \\
+        "https://en.wikipedia.org/wiki/Presidium" \\
+        "//h1/text()"
+
+    # XPath 2.0 avec string-join
+    python3 -m cortex.tools.direct_scrape \\
+        "https://en.wikipedia.org/wiki/Presidium" \\
+        "string-join(//p[position() <= 3]//text(), ' ')" \\
+        --xpath-version 2.0
+
+    # Format texte
+    python3 -m cortex.tools.direct_scrape URL XPATH --format text
+
+    # Sauvegarder dans un fichier
+    python3 -m cortex.tools.direct_scrape URL XPATH -o output.json
+
+Pourquoi utiliser cet outil plutôt que Cortex CLI?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+| Aspect          | Cortex CLI      | direct_scrape  |
+|-----------------|-----------------|----------------|
+| **Coût API**    | ~$0.005/scrape  | $0.00 (GRATUIT)|
+| **Latence**     | 5-15s (LLM)     | 1-3s (direct)  |
+| **Contrôle**    | Via LLM         | Direct XPath   |
+| **Scripting**   | Difficile       | Facile         |
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Le problème avec Cortex CLI:
+    User: "extraire texte wiki"
+      ↓
+    LLM (coûte $$$ via API OpenAI) ← Identifie tool
+      ↓
+    scrape_xpath() → local (GRATUIT)
+      ↓
+    LLM (coûte $$$ via API OpenAI) ← Formatte réponse
+      ↓
+    Résultat
+
+Avec direct_scrape (cet outil):
+    User lance commande
+      ↓
+    scrape_xpath() → local (GRATUIT) ← PAS DE LLM!
+      ↓
+    Résultat
+
+C'EST ABSURDE de payer le LLM juste pour dire "appelle scrape_xpath"!
+Utilisez cet outil pour scraper directement sans frais.
 """
 
 from typing import Dict, Any, List
@@ -16,7 +68,8 @@ def direct_scrape(
     url: str,
     xpath: str,
     xpath_version: str = "2.0",
-    output_format: str = "json"
+    output_format: str = "json",
+    check_robots: bool = False
 ) -> Dict[str, Any]:
     """
     Extraction XPath directe sans LLM
@@ -26,6 +79,7 @@ def direct_scrape(
         xpath: Expression XPath (1.0 ou 2.0)
         xpath_version: Version XPath à utiliser ("1.0" ou "2.0")
         output_format: Format de sortie ("json", "text", "list")
+        check_robots: Vérifier robots.txt (default: False)
 
     Returns:
         Dict avec résultats de l'extraction
@@ -50,8 +104,15 @@ def direct_scrape(
             enabled=True
         )
 
-        # Extraire DIRECTEMENT (pas de LLM)
-        result = crawler.scrape(source, validate_first=True)
+        # Valider sans robots.txt si check_robots=False
+        if not check_robots:
+            validation = crawler.validate_xpath(source, check_robots=False)
+            if not validation.success:
+                raise ValueError(f"XPath validation failed: {validation.error}")
+            result = crawler.scrape(source, validate_first=False)
+        else:
+            # Mode strict avec robots.txt
+            result = crawler.scrape(source, validate_first=True)
 
         # Formater selon output_format
         if output_format == "text":
@@ -150,6 +211,11 @@ if __name__ == "__main__":
         help="Output format"
     )
     parser.add_argument(
+        "--check-robots",
+        action="store_true",
+        help="Check robots.txt (default: ignore for permissive scraping)"
+    )
+    parser.add_argument(
         "--output",
         "-o",
         help="Output file (default: stdout)"
@@ -162,7 +228,8 @@ if __name__ == "__main__":
         url=args.url,
         xpath=args.xpath,
         xpath_version=args.xpath_version,
-        output_format=args.format
+        output_format=args.format,
+        check_robots=args.check_robots  # Default: False (permissive mode)
     )
 
     # Afficher ou sauvegarder
