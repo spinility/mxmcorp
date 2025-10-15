@@ -36,6 +36,14 @@ class WorkflowStep:
     required: bool = True  # Si False, continue même si échoue
     consult_optimization: bool = True
 
+    # NOUVEAU: Support pour enrichissement de contexte (Phase 4.1)
+    context_requests: List[str] = None  # Contextes dynamiques demandés
+    allow_enrichment: bool = True  # Permet injection de contexte dynamique
+
+    def __post_init__(self):
+        if self.context_requests is None:
+            self.context_requests = []
+
 
 @dataclass
 class WorkflowResult:
@@ -67,7 +75,8 @@ class WorkflowEngine:
         optimization_knowledge: Optional[OptimizationKnowledge] = None,
         roadmap_manager: Optional[RoadmapManager] = None,
         ceo_reporter: Optional[CEOReporter] = None,
-        git_processor: Optional[GitDiffProcessor] = None
+        git_processor: Optional[GitDiffProcessor] = None,
+        context_enrichment_agent=None  # Phase 4.1: Optional ContextEnrichmentAgent
     ):
         # Managers
         self.todolist = TodoListManager()
@@ -79,9 +88,13 @@ class WorkflowEngine:
         self.ceo_reporter = ceo_reporter or CEOReporter()
         self.git_processor = git_processor or GitDiffProcessor()
 
+        # Phase 4.1: Context enrichment (optionnel)
+        self.context_enrichment_agent = context_enrichment_agent
+
         # État
         self.current_workflow: Optional[str] = None
         self.current_request: Optional[str] = None
+        self.previous_step_results: Dict[str, Any] = {}  # Résultats des steps précédents
 
     def execute_workflow(
         self,
@@ -162,10 +175,46 @@ class WorkflowEngine:
                 print(f"\n🔄 Executing: {step.name}")
                 print(f"   Agent: {step.agent_name} ({step.department})")
 
-                # Exécuter action
+                # Phase 4.1: Enrichir contexte si demandé
+                enriched_prompt = None
+                if (step.context_requests and step.allow_enrichment and
+                    self.context_enrichment_agent is not None):
+
+                    # Créer AgentMessage pour enrichissement
+                    from cortex.departments.intelligence.context_enrichment_agent import AgentMessage
+
+                    prev_agent = steps[i-1].agent_name if i > 0 else "User"
+
+                    message = AgentMessage(
+                        from_agent=prev_agent,
+                        to_agent=step.agent_name,
+                        task=step.name,
+                        context_requests=step.context_requests,
+                        metadata={"workflow": workflow_name, "step_index": i}
+                    )
+
+                    # Enrichir
+                    print(f"   🌐 Enriching context with {len(step.context_requests)} request(s)...")
+                    enriched_message = self.context_enrichment_agent.enrich_message(
+                        message,
+                        query=request_text
+                    )
+
+                    if enriched_message.enriched:
+                        print(f"   ✓ Added {len(enriched_message.contexts_added)} dynamic context(s)")
+                        enriched_prompt = enriched_message.task
+
+                # Exécuter action (avec prompt enrichi si disponible)
                 step_start = time.time()
-                result = step.action()
+                if enriched_prompt and hasattr(step.action, '__self__'):
+                    # Si action est une méthode d'agent, passer enriched_prompt
+                    result = step.action(enriched_prompt=enriched_prompt)
+                else:
+                    result = step.action()
                 step_duration = time.time() - step_start
+
+                # Stocker résultat pour steps futurs
+                self.previous_step_results[step.agent_name] = result
 
                 # Marquer tâche complétée
                 self.todolist.complete_task(

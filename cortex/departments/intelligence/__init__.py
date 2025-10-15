@@ -5,9 +5,9 @@ Rôle: Collecte et contextualise données web dynamiques
 
 Agents:
 - XPathSourceRegistry (EXÉCUTANT) - Gère sources web + XPath
-- StealthWebCrawler (EXÉCUTANT) - Scrape web indétectable (TODO)
-- DynamicContextManager (EXPERT) - Optimise données pour agents (TODO)
-- ContextEnrichmentAgent (EXPERT) - Enrichit prompts entre agents (TODO)
+- StealthWebCrawler (EXÉCUTANT) - Scrape web indétectable
+- DynamicContextManager (EXPERT) - Optimise données pour agents
+- ContextEnrichmentAgent (EXPERT) - Enrichit prompts entre agents
 
 Workflow:
 1. Humain ajoute URL + XPath manuellement
@@ -21,8 +21,30 @@ from cortex.departments.intelligence.xpath_source_registry import (
     XPathSourceRegistry,
     XPathSource
 )
+from cortex.departments.intelligence.stealth_web_crawler import (
+    StealthWebCrawler,
+    ScrapedData,
+    ValidationResult
+)
+from cortex.departments.intelligence.dynamic_context_manager import (
+    DynamicContextManager,
+    OptimizedContext
+)
+from cortex.departments.intelligence.context_enrichment_agent import (
+    ContextEnrichmentAgent,
+    AgentMessage,
+    ContextRequest
+)
 
 __all__ = [
     'XPathSourceRegistry',
-    'XPathSource'
+    'XPathSource',
+    'StealthWebCrawler',
+    'ScrapedData',
+    'ValidationResult',
+    'DynamicContextManager',
+    'OptimizedContext',
+    'ContextEnrichmentAgent',
+    'AgentMessage',
+    'ContextRequest'
 ]
