@@ -4,8 +4,9 @@ Gère OpenAI, DeepSeek, et Anthropic via une interface commune
 """
 
 import os
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass
+import json
 
 # Imports conditionnels
 try:
@@ -29,14 +30,23 @@ except ImportError:
 
 
 @dataclass
+class ToolCall:
+    """Représentation d'un appel d'outil demandé par le LLM"""
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+
+
+@dataclass
 class LLMResponse:
     """Réponse standardisée d'un LLM"""
-    content: str
+    content: Optional[str]
     model: str
     tokens_input: int
     tokens_output: int
     cost: float
     finish_reason: str
+    tool_calls: Optional[List[ToolCall]] = None
 
 
 class LLMClient:
@@ -98,6 +108,8 @@ class LLMClient:
         tier: ModelTier,
         max_tokens: int = 2048,
         temperature: float = 0.7,
+        tools: Optional[List] = None,
+        tool_choice: str = "auto",
         **kwargs
     ) -> LLMResponse:
         """
@@ -108,6 +120,8 @@ class LLMClient:
             tier: Tier du modèle (NANO, DEEPSEEK, CLAUDE)
             max_tokens: Tokens maximum de sortie
             temperature: Température (0-1)
+            tools: Liste d'outils StandardTool disponibles pour le LLM
+            tool_choice: "auto", "none", ou nom spécifique d'outil
             **kwargs: Paramètres additionnels
 
         Returns:
@@ -127,13 +141,23 @@ class LLMClient:
                     finish_reason="cached"
                 )
 
+        # Convertir les tools au format approprié
+        formatted_tools = None
+        if tools:
+            if tier == ModelTier.CLAUDE:
+                # Format Anthropic
+                formatted_tools = [tool.to_anthropic_format() for tool in tools]
+            else:
+                # Format OpenAI (Nano et DeepSeek)
+                formatted_tools = [tool.to_openai_format() for tool in tools]
+
         # Cache miss - appeler le LLM réel
         if tier == ModelTier.NANO:
-            response = self._complete_openai(messages, max_tokens, temperature, **kwargs)
+            response = self._complete_openai(messages, max_tokens, temperature, formatted_tools, tool_choice, **kwargs)
         elif tier == ModelTier.DEEPSEEK:
-            response = self._complete_deepseek(messages, max_tokens, temperature, **kwargs)
+            response = self._complete_deepseek(messages, max_tokens, temperature, formatted_tools, tool_choice, **kwargs)
         elif tier == ModelTier.CLAUDE:
-            response = self._complete_anthropic(messages, max_tokens, temperature, **kwargs)
+            response = self._complete_anthropic(messages, max_tokens, temperature, formatted_tools, tool_choice, **kwargs)
         else:
             raise ValueError(f"Unknown model tier: {tier}")
 
@@ -154,6 +178,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         max_tokens: int,
         temperature: float,
+        tools: Optional[List[Dict]] = None,
+        tool_choice: str = "auto",
         **kwargs
     ) -> LLMResponse:
         """Complétion via OpenAI (gpt-5-nano)"""
@@ -177,6 +203,12 @@ class LLMClient:
             if temperature != 1.0:
                 params["temperature"] = temperature
 
+            # Ajouter tools si fournis
+            if tools:
+                params["tools"] = tools
+                if tool_choice != "auto":
+                    params["tool_choice"] = tool_choice
+
             # Retirer None values
             params = {k: v for k, v in params.items() if v is not None}
 
@@ -185,6 +217,17 @@ class LLMClient:
             content = response.choices[0].message.content
             tokens_input = response.usage.prompt_tokens
             tokens_output = response.usage.completion_tokens
+
+            # Extraire les tool calls si présents
+            tool_calls = None
+            if hasattr(response.choices[0].message, 'tool_calls') and response.choices[0].message.tool_calls:
+                tool_calls = []
+                for tc in response.choices[0].message.tool_calls:
+                    tool_calls.append(ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=json.loads(tc.function.arguments)
+                    ))
 
             # Calculer le coût
             cost = self._calculate_cost(
@@ -199,7 +242,8 @@ class LLMClient:
                 tokens_input=tokens_input,
                 tokens_output=tokens_output,
                 cost=cost,
-                finish_reason=response.choices[0].finish_reason
+                finish_reason=response.choices[0].finish_reason,
+                tool_calls=tool_calls
             )
 
         except Exception as e:
@@ -210,6 +254,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         max_tokens: int,
         temperature: float,
+        tools: Optional[List[Dict]] = None,
+        tool_choice: str = "auto",
         **kwargs
     ) -> LLMResponse:
         """Complétion via DeepSeek"""
@@ -220,17 +266,36 @@ class LLMClient:
         model_name = model_config.get("name", "deepseek-reasoner")
 
         try:
-            response = self.deepseek_client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_completion_tokens=max_tokens,
-                temperature=temperature,
+            params = {
+                "model": model_name,
+                "messages": messages,
+                "max_completion_tokens": max_tokens,
+                "temperature": temperature,
                 **kwargs
-            )
+            }
+
+            # Ajouter tools si fournis
+            if tools:
+                params["tools"] = tools
+                if tool_choice != "auto":
+                    params["tool_choice"] = tool_choice
+
+            response = self.deepseek_client.chat.completions.create(**params)
 
             content = response.choices[0].message.content
             tokens_input = response.usage.prompt_tokens
             tokens_output = response.usage.completion_tokens
+
+            # Extraire les tool calls si présents
+            tool_calls = None
+            if hasattr(response.choices[0].message, 'tool_calls') and response.choices[0].message.tool_calls:
+                tool_calls = []
+                for tc in response.choices[0].message.tool_calls:
+                    tool_calls.append(ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=json.loads(tc.function.arguments)
+                    ))
 
             # Calculer le coût
             cost = self._calculate_cost(
@@ -245,7 +310,8 @@ class LLMClient:
                 tokens_input=tokens_input,
                 tokens_output=tokens_output,
                 cost=cost,
-                finish_reason=response.choices[0].finish_reason
+                finish_reason=response.choices[0].finish_reason,
+                tool_calls=tool_calls
             )
 
         except Exception as e:
@@ -256,6 +322,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         max_tokens: int,
         temperature: float,
+        tools: Optional[List[Dict]] = None,
+        tool_choice: str = "auto",
         **kwargs
     ) -> LLMResponse:
         """Complétion via Anthropic (Claude)"""
@@ -279,16 +347,40 @@ class LLMClient:
                 })
 
         try:
-            response = self.anthropic_client.messages.create(
-                model=model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_message,
-                messages=anthropic_messages,
+            params = {
+                "model": model_name,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_message,
+                "messages": anthropic_messages,
                 **kwargs
-            )
+            }
 
-            content = response.content[0].text
+            # Ajouter tools si fournis
+            if tools:
+                params["tools"] = tools
+                # Anthropic utilise tool_choice différemment
+                if tool_choice != "auto":
+                    params["tool_choice"] = {"type": "tool", "name": tool_choice} if tool_choice != "none" else {"type": "auto"}
+
+            response = self.anthropic_client.messages.create(**params)
+
+            # Extraire le contenu (peut être text ou tool_use)
+            content = None
+            tool_calls = None
+
+            for block in response.content:
+                if block.type == "text":
+                    content = block.text
+                elif block.type == "tool_use":
+                    if tool_calls is None:
+                        tool_calls = []
+                    tool_calls.append(ToolCall(
+                        id=block.id,
+                        name=block.name,
+                        arguments=block.input
+                    ))
+
             tokens_input = response.usage.input_tokens
             tokens_output = response.usage.output_tokens
 
@@ -305,7 +397,8 @@ class LLMClient:
                 tokens_input=tokens_input,
                 tokens_output=tokens_output,
                 cost=cost,
-                finish_reason=response.stop_reason
+                finish_reason=response.stop_reason,
+                tool_calls=tool_calls
             )
 
         except Exception as e:
