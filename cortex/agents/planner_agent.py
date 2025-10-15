@@ -1,6 +1,9 @@
 """
 Planner Agent - Détecte les demandes de planification et crée des tâches structurées
 
+ROLE: DIRECTEUR (Décision) - Niveau 3 de la hiérarchie
+TIER: DEEPSEEK pour planification intelligente
+
 Responsabilités:
 - Détecter si une requête demande de la planification
 - Décomposer les grandes tâches en sous-tâches
@@ -15,9 +18,10 @@ import json
 from cortex.core.llm_client import LLMClient
 from cortex.core.model_router import ModelTier
 from cortex.core.todo_manager import TodoManager, TodoTask
+from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
 
 
-class PlannerAgent:
+class PlannerAgent(DecisionAgent):
     """Agent de planification intelligent"""
 
     def __init__(self, llm_client: LLMClient, todo_manager: TodoManager):
@@ -28,8 +32,70 @@ class PlannerAgent:
             llm_client: Client LLM pour l'analyse
             todo_manager: Gestionnaire de TodoList
         """
-        self.llm_client = llm_client
+        # Initialiser DecisionAgent avec spécialisation "planning"
+        super().__init__(llm_client, specialization="planning")
         self.todo_manager = todo_manager
+
+    def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
+        """
+        Évalue si le PlannerAgent peut gérer la requête
+
+        Override DecisionAgent.can_handle() avec logique spécifique
+        """
+        # Utiliser is_planning_request pour détection
+        is_planning, confidence = self.is_planning_request(request)
+        return confidence if is_planning else 0.0
+
+    def execute(
+        self,
+        request: str,
+        context: Optional[Dict] = None,
+        escalation_context: Optional[EscalationContext] = None
+    ) -> AgentResult:
+        """
+        Exécute la planification
+
+        Override DecisionAgent.execute() avec logique PlannerAgent
+
+        Args:
+            request: Requête de planification
+            context: Dict avec optionnel 'current_context'
+            escalation_context: Contexte si escalation
+
+        Returns:
+            AgentResult avec plan créé
+        """
+        # Extraire contexte
+        current_context = context.get('current_context', '') if context else ''
+
+        # Créer le plan
+        plan_result = self.create_plan(request, current_context)
+
+        if plan_result['success']:
+            return AgentResult(
+                success=True,
+                role=self.role,
+                tier=self.tier,
+                content=plan_result,
+                cost=plan_result.get('cost', 0.0),
+                confidence=0.9,  # High confidence for successful planning
+                should_escalate=False,
+                escalation_reason=None,
+                error=None,
+                metadata={'plan_result': plan_result}
+            )
+        else:
+            return AgentResult(
+                success=False,
+                role=self.role,
+                tier=self.tier,
+                content=None,
+                cost=0.0,
+                confidence=0.0,
+                should_escalate=True,
+                escalation_reason="Failed to create plan",
+                error=plan_result.get('error')
+            )
 
     def is_planning_request(self, user_request: str) -> Tuple[bool, float]:
         """
@@ -67,8 +133,8 @@ Réponds UNIQUEMENT avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": detection_prompt}],
                 tier=ModelTier.NANO,  # Rapide et économique
-                max_tokens=200,
-                temperature=0.3
+                max_tokens=200
+                # Note: Nano model only supports temperature=1 (default)
             )
 
             # Parser la réponse JSON
@@ -223,8 +289,8 @@ Réponds avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": analysis_prompt}],
                 tier=ModelTier.NANO,
-                max_tokens=200,
-                temperature=0.3
+                max_tokens=200
+                # Note: Nano model only supports temperature=1 (default)
             )
 
             result = json.loads(response.content.strip())
