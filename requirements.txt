@@ -13,7 +13,7 @@ uvloop>=0.19.0  # Performance boost pour asyncio
 
 # Database & Storage
 chromadb>=0.4.22  # Vector store
-sqlite3  # Built-in Python
+# sqlite3 is built-in with Python
 
 # Cache
 diskcache>=5.6.3  # File-based cache (fallback Redis)
@@ -32,7 +32,7 @@ python-dotenv>=1.0.0
 # Utilities
 pydantic>=2.5.3  # Validation données
 jinja2>=3.1.3  # Templates
-difflib  # Built-in, pour partial updates
+# difflib is built-in with Python
 
 # Optimisation & Compression
 tiktoken>=0.5.2  # Token counting (OpenAI)
