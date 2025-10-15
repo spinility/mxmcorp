@@ -28,10 +28,54 @@ class PromptEngineer:
         """
         self.llm_client = llm_client
 
+    def is_general_conversation(self, user_request: str) -> bool:
+        """
+        Détecte si c'est une conversation générale (pas une tâche technique)
+
+        Args:
+            user_request: Requête utilisateur
+
+        Returns:
+            True si c'est une conversation générale
+        """
+        request_lower = user_request.lower()
+
+        # Questions interrogatives (doivent commencer par ces patterns)
+        question_starts = [
+            "est-ce que", "est ce que", "sais-tu", "connais-tu", "penses-tu",
+            "crois-tu", "pourquoi", "comment ça", "c'est quoi", "qu'est-ce",
+            "savais-tu", "savais tu", "saviez-vous", "did you know",
+            "do you know", "can you tell"
+        ]
+
+        # Salutations (peuvent être n'importe où)
+        greetings = [
+            "bonjour", "salut", "hello", "hi ", "bonsoir", "bonne nuit",
+            "good morning", "good evening"
+        ]
+
+        # Opinions/discussions (patterns complets)
+        opinion_patterns = [
+            "selon toi", "à ton avis", "tu penses que", "tu crois que",
+            "in your opinion", "what do you think"
+        ]
+
+        # Vérifier si commence par une question
+        for pattern in question_starts:
+            if request_lower.startswith(pattern):
+                return True
+
+        # Vérifier salutations et opinions
+        for pattern in greetings + opinion_patterns:
+            if pattern in request_lower:
+                return True
+
+        return False
+
     def detect_tool_creation_request(self, user_request: str) -> bool:
         """
         Détecte si la requête demande de CRÉER un outil
-        (pas d'UTILISER un outil)
+        (pas d'UTILISER un outil ou de converser)
 
         Args:
             user_request: Requête utilisateur
@@ -39,6 +83,10 @@ class PromptEngineer:
         Returns:
             True si c'est une demande de création d'outil
         """
+        # Si c'est une conversation générale, pas une demande d'outil
+        if self.is_general_conversation(user_request):
+            return False
+
         create_patterns = [
             "implémente", "implemente", "crée", "cree", "ajoute", "créer", "creer",
             "implement", "create", "add", "make", "build", "develop", "code"
@@ -73,11 +121,16 @@ class PromptEngineer:
         Returns:
             System prompt optimisé
         """
-        # Générer la liste d'outils
-        tools_list = self._format_tools_list(available_tools, tier)
-
-        # Détecter si c'est une demande de création d'outil
+        # Détecter le type de requête
+        is_conversation = self.is_general_conversation(user_request)
         is_tool_creation = self.detect_tool_creation_request(user_request)
+
+        # Si c'est une conversation générale, prompt simplifié
+        if is_conversation:
+            return self._build_conversation_prompt(tier)
+
+        # Sinon, prompt avec outils
+        tools_list = self._format_tools_list(available_tools, tier)
 
         # Prompt selon le tier
         if tier == ModelTier.NANO:
@@ -86,6 +139,55 @@ class PromptEngineer:
             return self._build_deepseek_prompt(tools_list, is_tool_creation)
         else:  # Claude
             return self._build_claude_prompt(tools_list, is_tool_creation)
+
+    def _build_conversation_prompt(self, tier: ModelTier) -> str:
+        """
+        Prompt simplifié pour les conversations générales
+        (pas besoin de la liste d'outils)
+
+        Args:
+            tier: Tier du modèle
+
+        Returns:
+            Prompt de conversation
+        """
+        if tier == ModelTier.NANO:
+            return """You are Cortex, a helpful AI assistant.
+
+Respond naturally to the user's question.
+Be friendly, concise, and informative.
+
+Format:
+🎯 Result: [Your answer]
+💭 Confidence: [HIGH/MEDIUM/LOW]
+⚠️ Severity: LOW
+🔧 Actions: None - General conversation"""
+
+        elif tier == ModelTier.DEEPSEEK:
+            return """Tu es Cortex, un assistant IA conversationnel.
+
+Réponds naturellement à la question de l'utilisateur.
+Sois amical, concis et informatif.
+
+Format:
+🎯 **Résultat:** [Ta réponse]
+💭 **Confiance:** [HAUTE/MOYENNE/FAIBLE]
+⚠️ **Gravité:** FAIBLE
+🔧 **Actions:** Aucune - Conversation générale"""
+
+        else:  # Claude
+            return """Tu es Cortex, un assistant IA conversationnel intelligent.
+
+Réponds naturellement à la question de l'utilisateur avec:
+- Ton amical et engageant
+- Précision dans les faits
+- Clarté dans l'explication
+
+Format:
+🎯 **Résultat:** [Ta réponse détaillée]
+💭 **Confiance:** [HAUTE/MOYENNE/FAIBLE] - [Justification]
+⚠️ **Gravité:** FAIBLE - Conversation informelle
+🔧 **Actions:** Aucune - Conversation générale"""
 
     def _format_tools_list(
         self,
