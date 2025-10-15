@@ -39,6 +39,7 @@ from cortex.tools.pip_tools import get_all_pip_tools
 
 # Cortex agents
 from cortex.agents import create_tooler_agent, create_communications_agent, create_planner_agent
+from cortex.agents.context_agent import create_context_agent
 
 # Cortex managers
 from cortex.core.todo_manager_wrapper import create_todo_manager, TaskStatus  # Using TodoDB backend
@@ -68,6 +69,7 @@ class CortexCLI:
         self.tooler_agent = create_tooler_agent(self.llm_client)
         self.communications_agent = create_communications_agent(self.llm_client)
         self.planner_agent = create_planner_agent(self.llm_client, self.todo_manager)
+        self.context_agent = create_context_agent(self.llm_client)
 
         # Current employee handling requests
         self.current_employee = "Cortex"  # Default employee
@@ -292,6 +294,31 @@ Total Cost: ${sum(self.costs.values()):.6f}
             print(f"  Using {self.ui.color(selection.model_name, Color.GREEN)} (${selection.estimated_cost:.6f}/1M tokens)")
             print()
 
+            # Step 1.5: Context Agent - Prepare application context
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Context Agent preparing optimized context...")
+            self._show_employee_section("Context Agent", "Analyzing context necessity...")
+            print()
+
+            context_result = self.context_agent.prepare_context_for_request(
+                user_request=description,
+                target_tier=selection.tier
+            )
+
+            # Display context preparation results
+            context_needed = context_result['metadata']['context_needed']
+            print(f"  Context needed: {self.ui.color('YES' if context_needed['needed'] else 'NO', Color.GREEN if context_needed['needed'] else Color.YELLOW)}")
+            print(f"  Reason: {context_needed['reason']}")
+            print(f"  Confidence: {context_needed['confidence']:.0%}")
+
+            if context_result['metadata']['cache_hits']:
+                print(f"  {self.ui.color('✓', Color.GREEN)} Cache hits: {len(context_result['metadata']['cache_hits'])}")
+                for hit in context_result['metadata']['cache_hits']:
+                    print(f"    • {hit['id']} (similarity: {hit['similarity']:.2f})")
+
+            if context_result['metadata']['git_diff_included']:
+                print(f"  {self.ui.color('✓', Color.GREEN)} Git diff included")
+            print()
+
             # Step 2: Build optimized prompt with dynamic tool context
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Building optimized prompt for {selection.tier.value}...")
             system_prompt = self.prompt_engineer.build_agent_prompt(
@@ -303,6 +330,10 @@ Total Cost: ${sum(self.costs.values()):.6f}
             # Build messages
             messages = [{"role": "system", "content": system_prompt}]
 
+            # Add application context if provided
+            if context_result['context']:
+                messages.append({"role": "system", "content": f"APPLICATION CONTEXT:\n{context_result['context']}"})
+
             # Add recent conversation history (last 5 exchanges)
             for exchange in self.conversation_history[-5:]:
                 messages.append({"role": "user", "content": exchange["user"]})
@@ -310,6 +341,10 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             # Add current task
             messages.append({"role": "user", "content": description})
+
+            # Track context cost
+            self.total_cost += context_result['metadata']['total_cost']
+
             print()
 
             # Step 3: Execute with tools
