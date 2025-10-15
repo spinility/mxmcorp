@@ -455,12 +455,16 @@ def delete_file(path: str, recursive: bool = False) -> Dict[str, Any]:
 
 def get_all_builtin_tools():
     """
-    Get all built-in tools
+    Get all built-in tools (filesystem + intelligence)
 
     Returns:
         List of StandardTool objects
     """
-    return [
+    # Import intelligence tools
+    from cortex.tools.intelligence_tools import get_all_intelligence_tools
+
+    # Combiner filesystem tools et intelligence tools
+    filesystem_tools = [
         create_file,
         read_file,
         append_to_file,
@@ -468,6 +472,10 @@ def get_all_builtin_tools():
         file_exists,
         delete_file
     ]
+
+    intelligence_tools = get_all_intelligence_tools()
+
+    return filesystem_tools + intelligence_tools
 
 
 # Test if run directly
