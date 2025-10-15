@@ -58,6 +58,9 @@ class CortexCLI:
         self.tooler_agent = create_tooler_agent(self.llm_client)
         self.communications_agent = create_communications_agent(self.llm_client)
 
+        # Current employee handling requests
+        self.current_employee = "Cortex"  # Default employee
+
         # Register built-in tools
         self.available_tools = get_all_builtin_tools()
 
@@ -228,6 +231,10 @@ Total Cost: ${sum(self.costs.values()):.6f}
         print()
 
         try:
+            # Step 0: Show which employee is handling this
+            print(f"{self.ui.color('Employee:', Color.BRIGHT_MAGENTA, bold=True)} {self.ui.color(self.current_employee, Color.CYAN, bold=True)}")
+            print()
+
             # Step 1: Model selection
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Selecting optimal model...")
             selection = self.model_router.select_model(description)
