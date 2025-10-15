@@ -92,8 +92,27 @@ def validate_xpath(url: str, xpath: str) -> Dict[str, Any]:
         Dict avec résultat de validation
     """
     try:
+        from datetime import datetime
+
         crawler = StealthWebCrawler()
-        result = crawler.validate_xpath(url, xpath)
+
+        # Créer une source temporaire pour validation
+        source = XPathSource(
+            id=f"temp_validate_{hash(url)}",
+            name="Temporary Validation",
+            url=url,
+            xpath=xpath,
+            description="Temporary source for XPath validation",
+            category="temporary",
+            refresh_interval_hours=0,
+            created_at=datetime.now(),
+            last_validated=None,
+            validation_status="pending",
+            last_error=None,
+            enabled=True
+        )
+
+        result = crawler.validate_xpath(source)
 
         return {
             "success": result.success,
