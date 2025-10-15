@@ -58,3 +58,4 @@ htmlcov/
 
 # Distribution / packaging
 *.whl
+.cortex/
