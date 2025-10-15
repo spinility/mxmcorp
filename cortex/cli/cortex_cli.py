@@ -36,10 +36,12 @@ from cortex.tools.builtin_tools import get_all_builtin_tools
 from cortex.tools.web_tools import get_all_web_tools
 from cortex.tools.git_tools import get_all_git_tools
 from cortex.tools.pip_tools import get_all_pip_tools
+from cortex.tools.intelligence_tools import get_all_intelligence_tools
 
 # Cortex agents
 from cortex.agents import create_tooler_agent, create_communications_agent, create_planner_agent
 from cortex.agents.context_agent import create_context_agent
+from cortex.agents.smart_router_agent import create_smart_router_agent
 
 # Cortex managers
 from cortex.core.todo_manager_wrapper import create_todo_manager, TaskStatus  # Using TodoDB backend
@@ -70,6 +72,7 @@ class CortexCLI:
         self.communications_agent = create_communications_agent(self.llm_client)
         self.planner_agent = create_planner_agent(self.llm_client, self.todo_manager)
         self.context_agent = create_context_agent(self.llm_client)
+        self.smart_router = create_smart_router_agent(self.llm_client)
 
         # Current employee handling requests
         self.current_employee = "Cortex"  # Default employee
@@ -89,6 +92,10 @@ class CortexCLI:
         # Register pip tools (install, uninstall, list, show, freeze)
         pip_tools = get_all_pip_tools()
         self.available_tools.extend(pip_tools)
+
+        # Register intelligence tools (scrape_xpath, validate_xpath, add_web_source)
+        intelligence_tools = get_all_intelligence_tools()
+        self.available_tools.extend(intelligence_tools)
 
         # Register all tools with executor
         for tool in self.available_tools:
@@ -465,6 +472,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
     def _handle_tooler_request(self, response_content: str, user_request: str):
         """
         Handle automatic Tooler research when capability is missing
+        AVEC Smart Routing vers départements existants d'abord!
 
         Args:
             response_content: Response from LLM containing TOOLER_NEEDED
@@ -480,48 +488,115 @@ Total Cost: ${sum(self.costs.values()):.6f}
         capability_needed = match.group(1).strip()
 
         print()
-        self.ui.header("🔧 Automatic Tooler Research", level=2)
+        self.ui.header("🔧 Smart Routing & Tooler Research", level=2)
         print()
 
-        # Step 1: Tooler research
-        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Tooler researching solutions...")
+        # Step 0: SMART ROUTING - Check if existing department can handle this
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Smart Router analyzing request...")
         print(f"  Capability needed: {self.ui.color(capability_needed, Color.YELLOW)}")
         print()
 
         tool_names = [tool.name for tool in self.available_tools]
-        research_results = self.tooler_agent.research_missing_capability(
-            capability_description=capability_needed,
-            user_request=user_request,
+        routing_decision = self.smart_router.route_request(
+            user_request=user_request + " " + capability_needed,
             available_tools=tool_names
         )
 
-        print(f"{self.ui.color('✓', Color.GREEN)} Research complete!")
-        print(f"  Model used: {research_results['model_used']}")
-        print(f"  Cost: ${research_results['cost']:.6f}")
+        print(f"  Route decision: {self.ui.color(routing_decision['route_to'].upper(), Color.CYAN)}")
+        print(f"  Confidence: {routing_decision['confidence']:.2f}")
+        print(f"  Reason: {routing_decision['reason']}")
         print()
 
-        # Step 2: Communications recommendation
-        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Communications crafting recommendation...")
+        # If department found, suggest using it directly
+        if routing_decision['route_to'] == 'department':
+            dept_name = routing_decision['department']
+            agent_name = routing_decision['agent_suggestion']
+
+            print(self.ui.color("━" * 80, Color.CYAN))
+            print()
+            print(self.ui.color(f"✨ EXISTING DEPARTMENT FOUND: {dept_name.upper()}", Color.BRIGHT_GREEN, bold=True))
+            print()
+            print(f"The {self.ui.color(dept_name.title(), Color.CYAN)} department already handles this!")
+            print(f"Suggested agent: {self.ui.color(agent_name, Color.YELLOW)}")
+            print()
+
+            # Get department info
+            dept_info = self.smart_router.get_department_info(dept_name)
+            if dept_info:
+                print(f"Description: {dept_info['description']}")
+                print(f"Available agents: {', '.join(dept_info['agents'])}")
+                print()
+
+            # Check if tools are available
+            dept_tools = [t.name for t in self.available_tools if t.category == dept_name]
+            if dept_tools:
+                print(f"{self.ui.color('✓', Color.GREEN)} Tools already registered: {', '.join(dept_tools)}")
+                print()
+                print(self.ui.color("💡 TIP:", Color.YELLOW, bold=True) + " The tools are ready to use! Try calling them directly.")
+            else:
+                print(f"{self.ui.color('⚠️', Color.YELLOW)} Tools not yet registered in executor.")
+                print(f"{self.ui.color('💡 TIP:', Color.YELLOW, bold=True)} Tools may need to be imported or registered.")
+
+            print()
+            print(self.ui.color("━" * 80, Color.CYAN))
+            print()
+
+            # Don't call Tooler - we already have the capability!
+            return
+
+        elif routing_decision['route_to'] == 'executor':
+            print(f"{self.ui.color('✓', Color.GREEN)} Tool already available in executor!")
+            print(f"{self.ui.color('💡 TIP:', Color.YELLOW, bold=True)} Try calling the tool directly.")
+            print()
+            return
+
+        # Step 1: Only call Tooler if no department matches
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} No existing department found - calling Tooler...")
         print()
 
-        comm_request = self.tooler_agent.create_communication_request(research_results)
-        recommendation = self.communications_agent.craft_recommendation(comm_request)
+        try:
+            research_results = self.tooler_agent.research_missing_capability(
+                capability_description=capability_needed,
+                user_request=user_request,
+                available_tools=tool_names
+            )
 
-        # Display recommendation
-        print(self.ui.color("━" * 80, Color.CYAN))
-        print()
-        print(self.ui.color("📢 RECOMMENDATION FROM COMMUNICATIONS", Color.BRIGHT_CYAN, bold=True))
-        print()
-        print(recommendation['message'])
-        print()
-        print(self.ui.color("━" * 80, Color.CYAN))
-        print()
+            print(f"{self.ui.color('✓', Color.GREEN)} Research complete!")
+            print(f"  Model used: {research_results['model_used']}")
+            print(f"  Cost: ${research_results['cost']:.6f}")
+            print()
 
-        # Update costs
-        total_agent_cost = research_results['cost'] + recommendation['cost']
-        self.total_cost += total_agent_cost
-        print(self.ui.color(f"Agent workflow cost: ${total_agent_cost:.6f}", Color.BRIGHT_BLACK))
-        print()
+            # Step 2: Communications recommendation
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Communications crafting recommendation...")
+            print()
+
+            comm_request = self.tooler_agent.create_communication_request(research_results)
+            recommendation = self.communications_agent.craft_recommendation(comm_request)
+
+            # Display recommendation
+            print(self.ui.color("━" * 80, Color.CYAN))
+            print()
+            print(self.ui.color("📢 RECOMMENDATION FROM COMMUNICATIONS", Color.BRIGHT_CYAN, bold=True))
+            print()
+            print(recommendation['message'])
+            print()
+            print(self.ui.color("━" * 80, Color.CYAN))
+            print()
+
+            # Update costs
+            total_agent_cost = research_results['cost'] + recommendation['cost']
+            self.total_cost += total_agent_cost
+            print(self.ui.color(f"Agent workflow cost: ${total_agent_cost:.6f}", Color.BRIGHT_BLACK))
+            print()
+
+        except Exception as e:
+            # Fallback si Tooler échoue (ex: DeepSeek pas configuré)
+            print()
+            self.ui.error(f"Tooler research failed: {str(e)[:100]}")
+            print()
+            print(f"{self.ui.color('💡 TIP:', Color.YELLOW, bold=True)} Check if DEEPSEEK_API_KEY is configured.")
+            print(f"The Tooler agent uses DeepSeek for cost-effective research.")
+            print()
 
     def _colorize_response(self, response: str) -> str:
         """Colorize response with emoji-based sections"""

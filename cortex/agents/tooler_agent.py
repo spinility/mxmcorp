@@ -77,10 +77,11 @@ Sois concis mais précis."""
         ]
 
         # Utiliser DeepSeek pour la recherche (bon rapport qualité/prix)
+        # max_tokens=1500 pour éviter troncature sur recherches complexes
         response = self.llm_client.complete(
             messages=messages,
             tier=ModelTier.DEEPSEEK,
-            max_tokens=800,
+            max_tokens=1500,
             temperature=0.7
         )
 
