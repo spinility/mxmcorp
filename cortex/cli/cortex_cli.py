@@ -370,23 +370,21 @@ Total Cost: ${sum(self.costs.values()):.6f}
             if line.startswith('🎯'):
                 colored_lines.append(self.ui.color(line, Color.BRIGHT_GREEN, bold=True))
             elif line.startswith('💭'):
-                # Color confidence level
-                if 'HAUTE' in line:
-                    colored_lines.append(self.ui.color(line, Color.GREEN, bold=True))
-                elif 'MOYENNE' in line:
+                # Color confidence level (HIGH=Vert fluo, MEDIUM=Jaune, LOW=Rouge)
+                if 'HIGH' in line or 'HAUTE' in line:
+                    colored_lines.append(self.ui.color(line, Color.BRIGHT_GREEN, bold=True))
+                elif 'MEDIUM' in line or 'MOYENNE' in line:
                     colored_lines.append(self.ui.color(line, Color.YELLOW, bold=True))
-                else:  # FAIBLE
+                else:  # LOW / FAIBLE
                     colored_lines.append(self.ui.color(line, Color.RED, bold=True))
             elif line.startswith('⚠️'):
-                # Color severity level
-                if 'CRITIQUE' in line:
+                # Color severity level (HIGH=Rouge, MEDIUM=Jaune, LOW=Vert fluo)
+                if 'CRITICAL' in line or 'CRITIQUE' in line or 'HIGH' in line or 'HAUTE' in line:
                     colored_lines.append(self.ui.color(line, Color.RED, bold=True))
-                elif 'HAUTE' in line:
-                    colored_lines.append(self.ui.color(line, Color.BRIGHT_RED, bold=True))
-                elif 'MOYENNE' in line:
+                elif 'MEDIUM' in line or 'MOYENNE' in line:
                     colored_lines.append(self.ui.color(line, Color.YELLOW, bold=True))
-                else:  # FAIBLE
-                    colored_lines.append(self.ui.color(line, Color.GREEN, bold=True))
+                else:  # LOW / FAIBLE
+                    colored_lines.append(self.ui.color(line, Color.BRIGHT_GREEN, bold=True))
             elif line.startswith('🔧'):
                 colored_lines.append(self.ui.color(line, Color.CYAN, bold=True))
             elif line.strip().startswith('•'):
