@@ -28,19 +28,25 @@ def scrape_xpath(url: str, xpath: str) -> Dict[str, Any]:
         Dict avec résultat du scraping
     """
     try:
+        from datetime import datetime
+
         # Créer un crawler
         crawler = StealthWebCrawler()
 
-        # Créer une source temporaire
+        # Créer une source temporaire avec TOUS les champs requis
         source = XPathSource(
             id=f"temp_{hash(url)}",
             name="Temporary Scrape",
             url=url,
             xpath=xpath,
+            description="Temporary scrape for direct extraction",
             category="temporary",
-            created_at="",
-            last_scraped=None,
-            last_status="pending"
+            refresh_interval_hours=0,
+            created_at=datetime.now(),
+            last_validated=None,
+            validation_status="pending",
+            last_error=None,
+            enabled=True
         )
 
         # Scraper
@@ -90,20 +96,23 @@ def validate_xpath(url: str, xpath: str) -> Dict[str, Any]:
         result = crawler.validate_xpath(url, xpath)
 
         return {
-            "success": result.is_valid,
-            "valid": result.is_valid,
-            "sample_count": result.sample_count,
+            "success": result.success,
+            "valid": result.success,
+            "elements_found": result.elements_found,
             "sample_data": result.sample_data[:3] if result.sample_data else [],
             "error": result.error,
-            "message": result.message,
+            "response_time_ms": result.response_time_ms,
+            "status_code": result.status_code,
             "url": url,
-            "xpath": xpath
+            "xpath": xpath,
+            "message": f"Found {result.elements_found} elements" if result.success else f"Validation failed: {result.error}"
         }
 
     except Exception as e:
         return {
             "success": False,
             "valid": False,
+            "elements_found": 0,
             "error": str(e),
             "url": url,
             "xpath": xpath,
@@ -126,7 +135,16 @@ def add_web_source(name: str, url: str, xpath: str, category: str = "general") -
     """
     try:
         registry = XPathSourceRegistry()
-        source = registry.add_source(name, url, xpath, category)
+
+        # add_source requiert aussi une description
+        source = registry.add_source(
+            name=name,
+            url=url,
+            xpath=xpath,
+            description=f"{name} - {category}",
+            category=category,
+            refresh_interval_hours=24
+        )
 
         return {
             "success": True,
