@@ -30,6 +30,7 @@ from cortex.cli.terminal_ui import (
 # Cortex core components
 from cortex.core.llm_client import LLMClient
 from cortex.core.model_router import ModelRouter
+from cortex.core.prompt_engineer import PromptEngineer
 from cortex.tools.tool_executor import ToolExecutor
 from cortex.tools.builtin_tools import get_all_builtin_tools
 from cortex.tools.web_tools import get_all_web_tools
@@ -47,6 +48,7 @@ class CortexCLI:
         # Real LLM components
         self.llm_client = LLMClient()
         self.model_router = ModelRouter()
+        self.prompt_engineer = PromptEngineer(self.llm_client)
         self.tool_executor = ToolExecutor(self.llm_client)
 
         # Register built-in tools
@@ -225,10 +227,39 @@ Total Cost: ${sum(self.costs.values()):.6f}
             print(f"  Using {self.ui.color(selection.model_name, Color.GREEN)} (${selection.estimated_cost:.6f}/1M tokens)")
             print()
 
-            # Step 2: Build messages with agent prompt
-            messages = self._build_agent_messages(description)
+            # Step 2: Detect contradictions
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Analyzing request...")
+            contradiction = self.prompt_engineer.detect_contradiction(
+                description,
+                self.available_tools
+            )
 
-            # Step 3: Execute with tools
+            if contradiction:
+                self.ui.warning(f"⚠️ {contradiction['message']}")
+                print()
+
+            # Step 3: Build optimized prompt
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Building optimized prompt for {selection.tier.value}...")
+            system_prompt = self.prompt_engineer.build_agent_prompt(
+                tier=selection.tier,
+                user_request=description,
+                available_tools=self.available_tools,
+                contradiction=contradiction
+            )
+
+            # Build messages
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Add recent conversation history (last 5 exchanges)
+            for exchange in self.conversation_history[-5:]:
+                messages.append({"role": "user", "content": exchange["user"]})
+                messages.append({"role": "assistant", "content": exchange["assistant"]})
+
+            # Add current task
+            messages.append({"role": "user", "content": description})
+            print()
+
+            # Step 4: Execute with tools
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Executing with {len(self.available_tools)} tools available...")
             print()
 
@@ -332,7 +363,8 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 self.ui.error(f"Task failed: {error_msg[:100]}")
 
             # Show full traceback only in debug mode
-            if self.config.get("system.debug", False):
+            import os
+            if os.getenv("CORTEX_DEBUG", "false").lower() == "true":
                 import traceback
                 print()
                 self.ui.warning("Debug traceback:")
@@ -380,48 +412,6 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 colored_lines.append(line)
 
         return '\n'.join(colored_lines)
-
-    def _build_agent_messages(self, task: str) -> List[Dict[str, str]]:
-        """Build messages for the LLM with agent prompt"""
-        # Generate list of available tools
-        tools_list = "\n".join([f"  - {tool.name}: {tool.description}" for tool in self.available_tools])
-
-        system_prompt = f"""Tu es Cortex, un agent intelligent avec des outils.
-
-OUTILS DISPONIBLES:
-{tools_list}
-
-RÈGLES:
-1. Si tu as l'outil nécessaire: UTILISE-LE directement
-2. Si l'outil n'existe pas: Explique que tu vas le demander au Tools Department
-3. TOUJOURS utiliser ce format de réponse:
-
-🎯 **Résultat:** [Réponse principale en 1-2 phrases]
-
-💭 **Confiance:** [HAUTE/MOYENNE/FAIBLE] - [Raison courte]
-
-⚠️ **Gravité si erreur:** [CRITIQUE/HAUTE/MOYENNE/FAIBLE] - [Impact court]
-
-🔧 **Actions:** [Tools utilisés ou "Aucun tool disponible"]
-
-EXEMPLE:
-🎯 **Résultat:** Fichier créé avec succès.
-💭 **Confiance:** HAUTE - Tool confirmé.
-⚠️ **Gravité si erreur:** FAIBLE - Peut recréer.
-🔧 **Actions:** create_file()
-"""
-
-        messages = [{"role": "system", "content": system_prompt}]
-
-        # Add recent conversation history (last 5 exchanges)
-        for exchange in self.conversation_history[-5:]:
-            messages.append({"role": "user", "content": exchange["user"]})
-            messages.append({"role": "assistant", "content": exchange["assistant"]})
-
-        # Add current task
-        messages.append({"role": "user", "content": task})
-
-        return messages
 
     def cmd_clear(self):
         """Clear screen"""
