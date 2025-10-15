@@ -158,7 +158,7 @@ class CortexCLI:
                     messages=messages,
                     tier=selection.tier,
                     tools=self.available_tools,
-                    max_tokens=2048,
+                    max_tokens=8192,  # Augmenté pour supporter les gros résultats de scraping
                     temperature=1.0,  # DeepSeek reasoner ne supporte que temperature=1
                     verbose=self.config.get("system.debug", False)
                 )
