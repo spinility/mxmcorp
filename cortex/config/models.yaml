@@ -6,8 +6,8 @@ models:
   nano:
     name: "gpt-5-nano"
     provider: "openai"
-    cost_per_1m_input: 0.0001
-    cost_per_1m_output: 0.0002
+    cost_per_1m_input: 0.05  # $0.05 per 1M input tokens
+    cost_per_1m_output: 0.40  # $0.40 per 1M output tokens
     max_tokens: 4096
     context_window: 16384
     use_cases:
@@ -22,8 +22,8 @@ models:
   deepseek:
     name: "deepseek-reasoner"
     provider: "deepseek"
-    cost_per_1m_input: 0.15
-    cost_per_1m_output: 0.60
+    cost_per_1m_input: 0.28  # $0.28 per 1M input tokens
+    cost_per_1m_output: 0.42  # $0.42 per 1M output tokens
     max_tokens: 8192
     context_window: 65536
     use_cases:

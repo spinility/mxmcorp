@@ -124,6 +124,54 @@ class ConfigLoader:
         """Récupère la config d'optimisation des coûts"""
         return self.models.get("cost_optimization", {})
 
+    def get_model_pricing(self, model_tier: str) -> Dict[str, float]:
+        """
+        Récupère les prix d'un modèle
+
+        Args:
+            model_tier: "nano", "deepseek", ou "claude"
+
+        Returns:
+            Dict avec input et output pricing:
+            {
+                "input": 0.05,  # $ per 1M tokens
+                "output": 0.40,  # $ per 1M tokens
+                "provider": "openai",
+                "name": "gpt-5-nano"
+            }
+        """
+        model = self.get_model_config(model_tier)
+        if not model:
+            return {}
+
+        return {
+            "input": model.get("cost_per_1m_input", 0),
+            "output": model.get("cost_per_1m_output", 0),
+            "provider": model.get("provider", "unknown"),
+            "name": model.get("name", "unknown")
+        }
+
+    def calculate_cost(self, model_tier: str, input_tokens: int, output_tokens: int) -> float:
+        """
+        Calcule le coût d'un appel API
+
+        Args:
+            model_tier: "nano", "deepseek", ou "claude"
+            input_tokens: Nombre de tokens d'entrée
+            output_tokens: Nombre de tokens de sortie
+
+        Returns:
+            Coût en dollars
+        """
+        pricing = self.get_model_pricing(model_tier)
+        if not pricing:
+            return 0.0
+
+        input_cost = (input_tokens / 1_000_000) * pricing["input"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output"]
+
+        return input_cost + output_cost
+
     def validate(self) -> bool:
         """
         Valide que toutes les configurations essentielles sont présentes
