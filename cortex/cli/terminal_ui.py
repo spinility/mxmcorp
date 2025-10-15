@@ -276,7 +276,7 @@ def show_startup_screen(ui: Optional[TerminalUI] = None, show_system_info: bool 
         from datetime import datetime
 
         info_box = f"""
-Version: 1.0.0-alpha
+Version: 4.2.1 (Smart Routing)
 Environment: {os.getenv('ENV', 'development')}
 Initialized: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         """.strip()
