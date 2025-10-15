@@ -20,7 +20,7 @@ models:
 
   # TIER 2: Moyen (tâches complexes, génération code, raisonnement)
   deepseek:
-    name: "deepseek-v3.2-exp"
+    name: "deepseek-chat"
     provider: "deepseek"
     cost_per_1m_input: 0.15
     cost_per_1m_output: 0.60

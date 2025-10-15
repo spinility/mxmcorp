@@ -22,6 +22,7 @@ try:
     from cortex.core.config_loader import get_config
     from cortex.core.model_router import ModelRouter
     from cortex.core.partial_updater import PartialUpdater
+    from cortex.core.llm_client import LLMClient
 except ImportError:
     print("Error: Unable to import cortex modules")
     print("Make sure you're running from the project root directory")
@@ -46,6 +47,7 @@ class CortexCLI:
         # Composants principaux
         self.model_router = ModelRouter()
         self.partial_updater = PartialUpdater()
+        self.llm_client = LLMClient()
 
         # Session prompt
         history_file = self.config.get("cli.history_file", ".mxm_history")
@@ -115,10 +117,7 @@ class CortexCLI:
 
     def process_request(self, user_input: str):
         """
-        Traite une requête utilisateur
-
-        TODO: Intégration avec LLM réel
-        Pour l'instant: démonstration du routing et cost tracking
+        Traite une requête utilisateur avec le LLM réel
         """
         # Sélectionner le modèle optimal
         selection = self.model_router.select_model(user_input)
@@ -130,38 +129,95 @@ class CortexCLI:
                 f"(${selection.estimated_cost:.6f}/1M tokens)[/dim]"
             )
 
-        # TODO: Appel LLM réel ici
-        # Pour l'instant, réponse de démonstration
-        response = self._generate_demo_response(user_input, selection)
+        # Vérifier si le modèle est disponible
+        if not self.llm_client.is_available(selection.tier):
+            self.console.print(
+                f"[yellow]Warning: {selection.model_name} not available. "
+                f"Using demo mode.[/yellow]"
+            )
+            response_text = self._generate_demo_response(user_input, selection)
+            tokens_in = len(user_input.split()) * 1.3
+            tokens_out = len(response_text.split()) * 1.3
+            cost = 0.0
+        else:
+            # Appel LLM réel
+            try:
+                # Construire les messages
+                messages = self._build_messages(user_input)
+
+                # Appeler le LLM
+                response = self.llm_client.complete(
+                    messages=messages,
+                    tier=selection.tier,
+                    max_tokens=2048,
+                    temperature=0.7
+                )
+
+                response_text = response.content
+                tokens_in = response.tokens_input
+                tokens_out = response.tokens_output
+                cost = response.cost
+
+                # Ajouter à l'historique
+                self.conversation_history.append({
+                    "user": user_input,
+                    "assistant": response_text,
+                    "model": response.model,
+                    "cost": cost
+                })
+
+            except Exception as e:
+                self.console.print(f"[red]Error calling LLM: {e}[/red]")
+                if self.config.get("system.debug"):
+                    import traceback
+                    self.console.print(traceback.format_exc())
+                return
 
         # Afficher la réponse
         self.console.print()
         self.console.print(Panel(
-            Markdown(response),
+            Markdown(response_text),
             title="Cortex Response",
             border_style="blue"
         ))
 
-        # Estimer et afficher les coûts
-        input_tokens = len(user_input.split()) * 1.3  # Approximation
-        output_tokens = len(response.split()) * 1.3
-        cost = self.model_router.estimate_cost(
-            selection.tier,
-            int(input_tokens),
-            int(output_tokens)
-        )
-
+        # Mettre à jour les statistiques
         self.total_cost += cost
-        self.total_tokens += int(input_tokens + output_tokens)
+        self.total_tokens += int(tokens_in + tokens_out)
 
         if self.display_settings.get("show_cost", True):
             self.console.print(
                 f"[dim]💰 Cost: ${cost:.6f} | "
-                f"Tokens: {int(input_tokens + output_tokens)} | "
+                f"Tokens: {int(tokens_in + tokens_out)} | "
                 f"Session total: ${self.total_cost:.4f}[/dim]"
             )
 
         self.console.print()
+
+    def _build_messages(self, user_input: str):
+        """Construit les messages pour le LLM avec historique"""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Tu es Cortex MXMCorp, un système agentique intelligent optimisé "
+                    "pour l'efficacité maximale et les coûts minimaux. "
+                    "Tu peux analyser des requêtes, générer du code, créer des outils, "
+                    "et coordonner des agents pour accomplir des tâches complexes. "
+                    "Sois concis mais précis dans tes réponses."
+                )
+            }
+        ]
+
+        # Ajouter l'historique récent (max 5 derniers échanges)
+        for exchange in self.conversation_history[-5:]:
+            messages.append({"role": "user", "content": exchange["user"]})
+            messages.append({"role": "assistant", "content": exchange["assistant"]})
+
+        # Ajouter la requête actuelle
+        messages.append({"role": "user", "content": user_input})
+
+        return messages
 
     def _generate_demo_response(self, user_input: str, selection) -> str:
         """
