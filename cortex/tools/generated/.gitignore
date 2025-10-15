@@ -1,0 +1,7 @@
+# Generated tools - do not commit to version control
+*.sh
+*.txt
+tool_registry.json
+
+# Only commit the .gitignore itself
+!.gitignore

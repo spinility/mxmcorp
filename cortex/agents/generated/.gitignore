@@ -1,0 +1,5 @@
+# Generated agents - do not commit to version control
+*.py
+
+# Only commit the .gitignore itself
+!.gitignore
