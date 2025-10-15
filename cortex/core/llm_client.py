@@ -133,6 +133,7 @@ class LLMClient:
         temperature: float = 0.7,
         tools: Optional[List] = None,
         tool_choice: str = "auto",
+        verbose: bool = False,  # Nouveau: afficher infos modèle/coût
         **kwargs
     ) -> LLMResponse:
         """
@@ -145,6 +146,7 @@ class LLMClient:
             temperature: Température (0-1)
             tools: Liste d'outils StandardTool disponibles pour le LLM
             tool_choice: "auto", "none", ou nom spécifique d'outil
+            verbose: Si True, affiche modèle/coût avant et après l'appel
             **kwargs: Paramètres additionnels
 
         Returns:
@@ -152,6 +154,18 @@ class LLMClient:
         """
         # Clean messages to prevent UTF-8 encoding errors
         messages = self._clean_messages(messages)
+
+        # Afficher infos AVANT l'appel si verbose
+        if verbose:
+            model_info = self._get_model_info(tier)
+            print(f"\n{'='*60}")
+            print(f"🤖 LLM Call Info:")
+            print(f"   Model: {model_info['name']}")
+            print(f"   Tier: {tier.value}")
+            print(f"   Max output tokens: {max_tokens}")
+            print(f"   Temperature: {temperature if tier != ModelTier.NANO else '1.0 (forced)'}")
+            print(f"   Estimated cost: ~${self._estimate_cost(messages, tier, max_tokens):.6f}")
+            print(f"{'='*60}\n")
         # Vérifier le cache d'abord
         if self.cache:
             cache_result = self.cache.get(messages, tier.value, max_tokens)
@@ -186,6 +200,24 @@ class LLMClient:
             response = self._complete_anthropic(messages, max_tokens, temperature, formatted_tools, tool_choice, **kwargs)
         else:
             raise ValueError(f"Unknown model tier: {tier}")
+
+        # Vérifier si la réponse a été tronquée
+        if response.finish_reason == "length":
+            print(f"⚠️  WARNING: Response truncated! Output reached max_tokens limit ({max_tokens})")
+            print(f"   Consider increasing max_tokens for this call.")
+            print(f"   Model: {response.model} | Tokens: {response.tokens_input} in, {response.tokens_output} out")
+
+        # Afficher infos APRÈS l'appel si verbose
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"✅ LLM Response:")
+            print(f"   Model: {response.model}")
+            print(f"   Tokens: {response.tokens_input} in → {response.tokens_output} out")
+            print(f"   Cost: ${response.cost:.6f}")
+            print(f"   Finish reason: {response.finish_reason}")
+            if response.finish_reason == "length":
+                print(f"   ⚠️  TRUNCATED - increase max_tokens!")
+            print(f"{'='*60}\n")
 
         # Sauvegarder dans le cache
         if self.cache:
@@ -460,6 +492,54 @@ class LLMClient:
         elif tier == ModelTier.CLAUDE:
             return self.anthropic_client is not None
         return False
+
+    def _get_model_info(self, tier: ModelTier) -> Dict[str, Any]:
+        """Récupère les infos du modèle pour un tier"""
+        tier_key = tier.value.lower()
+        if tier_key == "nano":
+            tier_key = "nano"
+        elif tier_key == "deepseek":
+            tier_key = "deepseek"
+        elif tier_key == "claude":
+            tier_key = "claude"
+
+        model_config = self.models_config.get(tier_key, {})
+        return {
+            "name": model_config.get("name", "unknown"),
+            "cost_per_1m_input": model_config.get("cost_per_1m_input", 0.0),
+            "cost_per_1m_output": model_config.get("cost_per_1m_output", 0.0)
+        }
+
+    def _estimate_cost(
+        self,
+        messages: List[Dict[str, str]],
+        tier: ModelTier,
+        max_tokens: int
+    ) -> float:
+        """
+        Estime le coût d'un appel LLM
+
+        Args:
+            messages: Messages à envoyer
+            tier: Tier du modèle
+            max_tokens: Tokens de sortie maximum
+
+        Returns:
+            Coût estimé en dollars
+        """
+        # Estimer tokens input (rough: 4 chars = 1 token)
+        total_chars = sum(len(msg.get("content", "")) for msg in messages)
+        estimated_input_tokens = total_chars // 4
+
+        # Estimer tokens output (pessimiste: utiliser max_tokens)
+        estimated_output_tokens = max_tokens
+
+        # Calculer coût
+        model_info = self._get_model_info(tier)
+        input_cost = (estimated_input_tokens / 1_000_000) * model_info["cost_per_1m_input"]
+        output_cost = (estimated_output_tokens / 1_000_000) * model_info["cost_per_1m_output"]
+
+        return input_cost + output_cost
 
 
 # Test du client
