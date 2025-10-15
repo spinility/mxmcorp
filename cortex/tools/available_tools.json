@@ -1,0 +1,64 @@
+{
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read file content",
+      "category": "read",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "write_file",
+      "description": "Write content to file",
+      "category": "write",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "list_files",
+      "description": "List files in directory",
+      "category": "read",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "search_files",
+      "description": "Search for text in files",
+      "category": "read",
+      "cost_estimate": "cheap"
+    },
+    {
+      "name": "get_pricing",
+      "description": "Get model pricing data",
+      "category": "read",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "calculate_cost",
+      "description": "Calculate API call cost",
+      "category": "compute",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "execute_shell",
+      "description": "Execute shell command",
+      "category": "system",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "get_system_stats",
+      "description": "Get system performance stats",
+      "category": "system",
+      "cost_estimate": "free"
+    },
+    {
+      "name": "analyze_logs",
+      "description": "Analyze system logs",
+      "category": "compute",
+      "cost_estimate": "cheap"
+    },
+    {
+      "name": "validate_data",
+      "description": "Validate data structure",
+      "category": "compute",
+      "cost_estimate": "free"
+    }
+  ]
+}

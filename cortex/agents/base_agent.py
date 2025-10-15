@@ -90,7 +90,8 @@ class BaseAgent:
         model_router: Optional[ModelRouter] = None,
         hr_department=None,
         tools_department=None,
-        expert_pool=None
+        expert_pool=None,
+        print_updates: bool = True  # Nouveau: contrôle les prints terminal
     ):
         self.config = config
         self.memory = AgentMemory()
@@ -120,6 +121,9 @@ class BaseAgent:
         # Quality evaluator (partagé)
         self.quality_evaluator = QualityEvaluator(self.llm_client)
 
+        # Contrôle des updates terminal
+        self.print_updates = print_updates
+
     def register_tool(self, tool: StandardTool):
         """Enregistre un tool disponible pour cet agent"""
         self.available_tools[tool.name] = tool
@@ -133,6 +137,34 @@ class BaseAgent:
     def register_subordinate(self, agent: 'BaseAgent'):
         """Enregistre un agent subordonné"""
         self.subordinates[agent.config.name] = agent
+
+    def _print_update(self, message: str, level: str = "info"):
+        """
+        Print obligatoire d'un update au terminal
+
+        Tous les agents DOIVENT appeler cette méthode pour informer l'utilisateur
+        de ce qu'ils font.
+
+        Args:
+            message: Message à afficher
+            level: "start", "progress", "success", "error", "info"
+        """
+        if not self.print_updates:
+            return
+
+        symbols = {
+            "start": "🚀",
+            "progress": "⚙️",
+            "success": "✅",
+            "error": "❌",
+            "info": "ℹ️",
+            "tool": "🔧",
+            "delegate": "👥",
+            "escalate": "⬆️"
+        }
+
+        symbol = symbols.get(level, "•")
+        print(f"{symbol} [{self.config.name}] {message}")
 
     def execute(
         self,
@@ -155,6 +187,9 @@ class BaseAgent:
         """
         self.task_count += 1
 
+        # UPDATE TERMINAL OBLIGATOIRE - Début de tâche
+        self._print_update(f"Starting: {task[:60]}{'...' if len(task) > 60 else ''}", level="start")
+
         if verbose:
             print(f"\n[{self.config.name}] Executing task: {task[:80]}...")
 
@@ -164,12 +199,17 @@ class BaseAgent:
         # Sélectionner le modèle approprié
         tier = self._select_tier(task)
 
+        # UPDATE TERMINAL OBLIGATOIRE - Modèle sélectionné
+        self._print_update(f"Using {tier.value} model", level="progress")
+
         if verbose:
             print(f"[{self.config.name}] Using tier: {tier.value}")
 
         try:
             # Exécuter avec ou sans tools
             if use_tools and self.available_tools:
+                self._print_update(f"Executing with {len(self.available_tools)} tools available", level="tool")
+
                 response = self.tool_executor.execute_with_tools(
                     messages=messages,
                     tier=tier,
@@ -207,6 +247,12 @@ class BaseAgent:
                 "tool_calls": len(response.tool_calls) if response.tool_calls else 0
             }
 
+            # UPDATE TERMINAL OBLIGATOIRE - Succès
+            self._print_update(
+                f"Task completed (cost: ${response.cost:.6f}, tokens: {response.tokens_input}→{response.tokens_output})",
+                level="success"
+            )
+
             if verbose:
                 print(f"[{self.config.name}] ✓ Task completed")
                 print(f"  Cost: ${response.cost:.6f} | Tokens: {response.tokens_input}→{response.tokens_output}")
@@ -214,6 +260,9 @@ class BaseAgent:
             return result
 
         except Exception as e:
+            # UPDATE TERMINAL OBLIGATOIRE - Erreur
+            self._print_update(f"Task failed: {str(e)[:80]}", level="error")
+
             if verbose:
                 print(f"[{self.config.name}] ✗ Task failed: {e}")
 
@@ -269,6 +318,9 @@ class BaseAgent:
 
         self.delegation_count += 1
 
+        # UPDATE TERMINAL OBLIGATOIRE - Délégation
+        self._print_update(f"Delegating to {agent.config.name}", level="delegate")
+
         if verbose:
             print(f"[{self.config.name}] Delegating to {agent.config.name}...")
 
@@ -278,6 +330,9 @@ class BaseAgent:
         # Mettre à jour nos stats
         if result.get("success"):
             self.total_cost += result.get("cost", 0)
+            self._print_update(f"Delegation to {agent.config.name} succeeded", level="success")
+        else:
+            self._print_update(f"Delegation to {agent.config.name} failed", level="error")
 
         return result
 
