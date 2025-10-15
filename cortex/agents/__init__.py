@@ -1,5 +1,17 @@
-"""Cortex Agent System"""
+"""
+Cortex Agents - Specialized autonomous agents
 
-from .base_agent import BaseAgent, AgentConfig, AgentMemory
+Agents disponibles:
+- Tooler: Recherche et recommande des outils manquants
+- Communications: Formule des recommandations pour l'utilisateur
+"""
 
-__all__ = ["BaseAgent", "AgentConfig", "AgentMemory"]
+from cortex.agents.tooler_agent import ToolerAgent, create_tooler_agent
+from cortex.agents.communications_agent import CommunicationsAgent, create_communications_agent
+
+__all__ = [
+    'ToolerAgent',
+    'CommunicationsAgent',
+    'create_tooler_agent',
+    'create_communications_agent'
+]

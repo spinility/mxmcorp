@@ -35,6 +35,9 @@ from cortex.tools.tool_executor import ToolExecutor
 from cortex.tools.builtin_tools import get_all_builtin_tools
 from cortex.tools.web_tools import get_all_web_tools
 
+# Cortex agents
+from cortex.agents import create_tooler_agent, create_communications_agent
+
 
 class CortexCLI:
     """Interactive CLI for Cortex"""
@@ -50,6 +53,10 @@ class CortexCLI:
         self.model_router = ModelRouter()
         self.prompt_engineer = PromptEngineer(self.llm_client)
         self.tool_executor = ToolExecutor(self.llm_client)
+
+        # Specialized agents
+        self.tooler_agent = create_tooler_agent(self.llm_client)
+        self.communications_agent = create_communications_agent(self.llm_client)
 
         # Register built-in tools
         self.available_tools = get_all_builtin_tools()
@@ -275,6 +282,10 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 colored_response = self._colorize_response(response.content)
                 print(colored_response)
                 print()
+
+                # Check if TOOLER is needed
+                if "TOOLER_NEEDED:" in response.content:
+                    self._handle_tooler_request(response.content, description)
             else:
                 # Fallback: générer une réponse basique
                 self.ui.warning("⚠️ LLM returned empty response - generating fallback")
@@ -357,6 +368,67 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 print()
                 self.ui.warning("Debug traceback:")
                 traceback.print_exc()
+
+    def _handle_tooler_request(self, response_content: str, user_request: str):
+        """
+        Handle automatic Tooler research when capability is missing
+
+        Args:
+            response_content: Response from LLM containing TOOLER_NEEDED
+            user_request: Original user request
+        """
+        # Extract what's needed from the response
+        import re
+        match = re.search(r'TOOLER_NEEDED:\s*(.+?)(?:\n|$)', response_content)
+
+        if not match:
+            return
+
+        capability_needed = match.group(1).strip()
+
+        print()
+        self.ui.header("🔧 Automatic Tooler Research", level=2)
+        print()
+
+        # Step 1: Tooler research
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Tooler researching solutions...")
+        print(f"  Capability needed: {self.ui.color(capability_needed, Color.YELLOW)}")
+        print()
+
+        tool_names = [tool.name for tool in self.available_tools]
+        research_results = self.tooler_agent.research_missing_capability(
+            capability_description=capability_needed,
+            user_request=user_request,
+            available_tools=tool_names
+        )
+
+        print(f"{self.ui.color('✓', Color.GREEN)} Research complete!")
+        print(f"  Model used: {research_results['model_used']}")
+        print(f"  Cost: ${research_results['cost']:.6f}")
+        print()
+
+        # Step 2: Communications recommendation
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Communications crafting recommendation...")
+        print()
+
+        comm_request = self.tooler_agent.create_communication_request(research_results)
+        recommendation = self.communications_agent.craft_recommendation(comm_request)
+
+        # Display recommendation
+        print(self.ui.color("━" * 80, Color.CYAN))
+        print()
+        print(self.ui.color("📢 RECOMMENDATION FROM COMMUNICATIONS", Color.BRIGHT_CYAN, bold=True))
+        print()
+        print(recommendation['message'])
+        print()
+        print(self.ui.color("━" * 80, Color.CYAN))
+        print()
+
+        # Update costs
+        total_agent_cost = research_results['cost'] + recommendation['cost']
+        self.total_cost += total_agent_cost
+        print(self.ui.color(f"Agent workflow cost: ${total_agent_cost:.6f}", Color.BRIGHT_BLACK))
+        print()
 
     def _colorize_response(self, response: str) -> str:
         """Colorize response with emoji-based sections"""

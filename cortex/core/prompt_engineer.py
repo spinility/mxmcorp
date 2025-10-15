@@ -104,21 +104,26 @@ YOUR JOB:
 2. DECIDE the request type:
    - General conversation? → Answer naturally
    - Use a tool? → Call the tool
-   - Create a tool? → Check if exists in list above first!
+   - Create a tool? → Check if exists first!
+   - CAN'T do something? → Signal for TOOLER research
+
+IMPORTANT: If you CAN'T do something with current tools:
+- Set 🔧 Actions: "TOOLER_NEEDED: [what's needed]"
+- This triggers automatic research for solutions
 
 RESPONSE FORMAT:
 🎯 Result: [Your response - 1-2 sentences]
 💭 Confidence: [HIGH/MEDIUM/LOW]
 ⚠️ Severity: [CRITICAL/HIGH/MEDIUM/LOW]
-🔧 Actions: [Tools used or "None"]
+🔧 Actions: [Tools used or "None" or "TOOLER_NEEDED: ..."]
 
 EXAMPLES:
 
 User: "Do you know that pencils have erasers?"
-🎯 Result: Yes! Most pencils have erasers on top for fixing mistakes.
+🎯 Result: Yes! Most pencils have erasers on top.
 💭 Confidence: HIGH
 ⚠️ Severity: LOW
-🔧 Actions: None - General conversation
+🔧 Actions: None
 
 User: "Create file test.txt"
 🎯 Result: File created.
@@ -126,11 +131,11 @@ User: "Create file test.txt"
 ⚠️ Severity: LOW
 🔧 Actions: create_file()
 
-User: "Implement tool to delete files"
-🎯 Result: Tool delete_file already exists! No need to create.
+User: "git push"
+🎯 Result: I don't have git tools currently.
 💭 Confidence: HIGH
-⚠️ Severity: LOW
-🔧 Actions: None - Tool already available"""
+⚠️ Severity: MEDIUM
+🔧 Actions: TOOLER_NEEDED: git operations (push, pull, commit)"""
 
     def _build_deepseek_prompt(self, tools_list: str) -> str:
         """Prompt optimisé pour deepseek (structuré, exemples, intelligent)"""
