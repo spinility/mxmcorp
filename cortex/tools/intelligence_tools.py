@@ -158,16 +158,18 @@ def get_all_intelligence_tools() -> List[StandardTool]:
             name="scrape_xpath",
             description="Extract text from a web page using XPath expression. Stealth crawler (undetectable).",
             parameters={
-                "url": {
-                    "type": "string",
-                    "description": "The URL of the web page to scrape",
-                    "required": True
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the web page to scrape"
+                    },
+                    "xpath": {
+                        "type": "string",
+                        "description": "The XPath expression to extract data (e.g., '//h1/text()' for all h1 text)"
+                    }
                 },
-                "xpath": {
-                    "type": "string",
-                    "description": "The XPath expression to extract data (e.g., '//h1/text()' for all h1 text)",
-                    "required": True
-                }
+                "required": ["url", "xpath"]
             },
             function=scrape_xpath,
             category="intelligence"
@@ -176,16 +178,18 @@ def get_all_intelligence_tools() -> List[StandardTool]:
             name="validate_xpath",
             description="Validate an XPath expression on a URL before scraping",
             parameters={
-                "url": {
-                    "type": "string",
-                    "description": "The URL to test the XPath on",
-                    "required": True
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to test the XPath on"
+                    },
+                    "xpath": {
+                        "type": "string",
+                        "description": "The XPath expression to validate"
+                    }
                 },
-                "xpath": {
-                    "type": "string",
-                    "description": "The XPath expression to validate",
-                    "required": True
-                }
+                "required": ["url", "xpath"]
             },
             function=validate_xpath,
             category="intelligence"
@@ -194,26 +198,26 @@ def get_all_intelligence_tools() -> List[StandardTool]:
             name="add_web_source",
             description="Add a web source to the registry for periodic scraping",
             parameters={
-                "name": {
-                    "type": "string",
-                    "description": "A descriptive name for the source",
-                    "required": True
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "A descriptive name for the source"
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the web page"
+                    },
+                    "xpath": {
+                        "type": "string",
+                        "description": "The XPath expression to extract data"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Category (tech_news, docs, general, etc.)"
+                    }
                 },
-                "url": {
-                    "type": "string",
-                    "description": "The URL of the web page",
-                    "required": True
-                },
-                "xpath": {
-                    "type": "string",
-                    "description": "The XPath expression to extract data",
-                    "required": True
-                },
-                "category": {
-                    "type": "string",
-                    "description": "Category (tech_news, docs, general, etc.)",
-                    "required": False
-                }
+                "required": ["name", "url", "xpath"]
             },
             function=add_web_source,
             category="intelligence"
