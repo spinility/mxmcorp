@@ -101,49 +101,26 @@ AVAILABLE TOOLS:
 
 YOUR JOB:
 1. ANALYZE the user request
-2. DECIDE the request type:
+2. DECIDE what to do:
    - General conversation? → Answer naturally
-   - Use a tool? → Call the tool
-   - Create a tool? → Check if exists first!
-   - CAN'T do something? → Signal for TOOLER research
-
-IMPORTANT: If you CAN'T do something with current tools:
-- Set 🔧 Actions: "TOOLER_NEEDED: [what's needed]"
-- This triggers automatic research for solutions
-
-RESPONSE FORMAT:
-🎯 Result: [Your response - 1-2 sentences]
-💭 Confidence: [HIGH/MEDIUM/LOW]
-⚠️ Severity: [CRITICAL/HIGH/MEDIUM/LOW]
-🔧 Actions: [Tools used or "None" or "TOOLER_NEEDED: ..."]
+   - Use a tool? → Call it directly using function calling
+   - Need a capability you don't have? → Say "TOOLER_NEEDED: [capability]"
 
 EXAMPLES:
 
 User: "Do you know that pencils have erasers?"
-🎯 Result: Yes! Most pencils have erasers on top.
-💭 Confidence: HIGH
-⚠️ Severity: LOW
-🔧 Actions: None
+Response: Yes! Most pencils have erasers on top for correcting mistakes.
 
-User: "Create file test.txt"
-🎯 Result: File created.
-💭 Confidence: HIGH
-⚠️ Severity: LOW
-🔧 Actions: create_file()
+User: "Extract text from https://example.com using XPath //h1/text()"
+Response: [Call scrape_xpath tool with url="https://example.com", xpath="//h1/text()"]
 
-User: "Use scrape_xpath with url=https://example.com and xpath=//h1/text()"
-RESPONSE: Just call the tool, no text needed.
-🔧 Actions: scrape_xpath(url="https://example.com", xpath="//h1/text()")
+User: "git push to remote"
+Response: TOOLER_NEEDED: git operations (push, pull, commit, branch)
 
-User: "Extract text from XPATH=/html/body/div[1] at URL=https://site.com"
-RESPONSE: Just call the tool, no text needed.
-🔧 Actions: scrape_xpath(url="https://site.com", xpath="/html/body/div[1]")
-
-User: "git push"
-🎯 Result: I don't have git tools currently.
-💭 Confidence: HIGH
-⚠️ Severity: MEDIUM
-🔧 Actions: TOOLER_NEEDED: git operations (push, pull, commit)"""
+IMPORTANT:
+- When the user asks to USE a tool with specific parameters, call it immediately
+- Don't describe what you're doing, just call the tool
+- If you can't do something, clearly state "TOOLER_NEEDED: [what's missing]" """
 
     def _build_deepseek_prompt(self, tools_list: str) -> str:
         """Prompt optimisé pour deepseek (structuré, exemples, intelligent)"""
