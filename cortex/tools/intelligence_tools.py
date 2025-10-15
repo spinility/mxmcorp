@@ -49,10 +49,11 @@ def scrape_xpath(url: str, xpath: str) -> Dict[str, Any]:
             enabled=True
         )
 
-        # Scraper
+        # Scraper - retourne un ScrapedData object
         result = crawler.scrape(source)
 
-        if result.success:
+        # ScrapedData contient toujours des données, vérifier validation
+        if result.validation_before_scrape.success:
             return {
                 "success": True,
                 "data": result.data,
@@ -64,10 +65,10 @@ def scrape_xpath(url: str, xpath: str) -> Dict[str, Any]:
         else:
             return {
                 "success": False,
-                "error": result.error,
+                "error": result.validation_before_scrape.error,
                 "url": url,
                 "xpath": xpath,
-                "message": f"Scraping failed: {result.error}"
+                "message": f"Scraping failed: {result.validation_before_scrape.error}"
             }
 
     except Exception as e:

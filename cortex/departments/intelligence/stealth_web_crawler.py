@@ -101,7 +101,7 @@ class StealthWebCrawler:
         """Retourne un user-agent aléatoire"""
         return random.choice(self.USER_AGENTS)
 
-    def _random_delay(self, min_seconds: float = 2.0, max_seconds: float = 5.0):
+    def _random_delay(self, min_seconds: float = 0.5, max_seconds: float = 1.5):
         """Délai randomisé pour paraître humain"""
         delay = random.uniform(min_seconds, max_seconds)
         time.sleep(delay)
@@ -138,13 +138,14 @@ class StealthWebCrawler:
             # En cas d'erreur, autoriser par défaut
             return True
 
-    def _fetch_page(self, url: str, headers: Dict[str, str]) -> requests.Response:
+    def _fetch_page(self, url: str, headers: Dict[str, str], use_delay: bool = True) -> requests.Response:
         """
         Fetch une page avec techniques stealth
 
         Args:
             url: URL à fetcher
             headers: Headers HTTP
+            use_delay: Utiliser le délai aléatoire (True par défaut)
 
         Returns:
             Response object
@@ -161,8 +162,9 @@ class StealthWebCrawler:
         if "DNT" not in headers:
             headers["DNT"] = "1"
 
-        # Random delay avant requête
-        self._random_delay()
+        # Random delay avant requête (optionnel pour tests)
+        if use_delay:
+            self._random_delay()
 
         # Faire la requête
         response = self.session.get(
