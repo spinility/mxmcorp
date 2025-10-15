@@ -38,7 +38,11 @@ from cortex.tools.git_tools import get_all_git_tools
 from cortex.tools.pip_tools import get_all_pip_tools
 
 # Cortex agents
-from cortex.agents import create_tooler_agent, create_communications_agent
+from cortex.agents import create_tooler_agent, create_communications_agent, create_planner_agent
+
+# Cortex managers
+from cortex.core.todo_manager import create_todo_manager, TaskStatus
+from cortex.core.conversation_manager import create_conversation_manager
 
 
 class CortexCLI:
@@ -56,12 +60,18 @@ class CortexCLI:
         self.prompt_engineer = PromptEngineer(self.llm_client)
         self.tool_executor = ToolExecutor(self.llm_client)
 
+        # Core managers
+        self.todo_manager = create_todo_manager()
+        self.conversation_manager = create_conversation_manager(self.llm_client)
+
         # Specialized agents
         self.tooler_agent = create_tooler_agent(self.llm_client)
         self.communications_agent = create_communications_agent(self.llm_client)
+        self.planner_agent = create_planner_agent(self.llm_client, self.todo_manager)
 
         # Current employee handling requests
         self.current_employee = "Cortex"  # Default employee
+        self.employee_stack = []  # Stack for nested employee calls
 
         # Register built-in tools
         self.available_tools = get_all_builtin_tools()
@@ -185,6 +195,15 @@ class CortexCLI:
         elif cmd == "demo":
             self.cmd_demo()
 
+        elif cmd == "todo" or cmd == "todos":
+            self.cmd_show_todos()
+
+        elif cmd == "next":
+            self.cmd_execute_next_task()
+
+        elif cmd == "conversation-stats":
+            self.cmd_conversation_stats()
+
         else:
             # Not a recognized command - treat as natural language task
             self.ui.info("Treating input as natural language task...")
@@ -240,9 +259,25 @@ Total Cost: ${sum(self.costs.values()):.6f}
         print(self.ui.color(user_msg_box, Color.BRIGHT_YELLOW, bold=True))
         print()
 
+        # Add user message to conversation manager
+        self.conversation_manager.add_message("user", description)
+
         try:
-            # Step 0: Show which employee is handling this
-            print(f"{self.ui.color('Employee:', Color.BRIGHT_MAGENTA, bold=True)} {self.ui.color(self.current_employee, Color.CYAN, bold=True)}")
+            # Step 0: Check if this is a planning request
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Checking if planning is needed...")
+            is_planning, confidence = self.planner_agent.is_planning_request(description)
+
+            if is_planning and confidence > 0.6:
+                print(f"  {self.ui.color('Planning detected!', Color.GREEN)} (confidence: {confidence:.2f})")
+                print()
+                self._handle_planning_request(description)
+                return
+
+            print(f"  {self.ui.color('Direct execution', Color.CYAN)} (planning confidence: {confidence:.2f})")
+            print()
+
+            # Step 0.5: Show which employee is handling this
+            self._show_employee_section(self.current_employee, "Processing request...")
             print()
 
             # Step 1: Model selection
@@ -556,6 +591,176 @@ Total Cost: ${sum(self.costs.values()):.6f}
         print()
 
         self.ui.success("Demo complete!")
+
+    def _show_employee_section(self, employee_name: str, status: str = ""):
+        """
+        Display employee section like Tools Department style
+
+        Args:
+            employee_name: Name of the employee
+            status: Optional status message
+        """
+        print(self.ui.color("━" * 80, Color.CYAN))
+        print(f"{self.ui.color('👤 EMPLOYEE:', Color.BRIGHT_MAGENTA, bold=True)} {self.ui.color(employee_name, Color.CYAN, bold=True)}")
+        if status:
+            print(f"   {self.ui.color(status, Color.BRIGHT_BLACK)}")
+        print(self.ui.color("━" * 80, Color.CYAN))
+
+    def _handle_planning_request(self, description: str):
+        """
+        Handle planning request - delegates to Planner agent
+
+        Args:
+            description: Planning request from user
+        """
+        self._show_employee_section("Planner", "Creating structured plan...")
+        print()
+
+        # Get context from conversation manager
+        context_messages = self.conversation_manager.get_context_for_llm(max_tokens=2000)
+        context_text = "\n".join([f"{msg['role']}: {msg['content'][:200]}" for msg in context_messages])
+
+        # Create plan
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Analyzing request and creating tasks...")
+        plan_result = self.planner_agent.create_plan(description, context_text)
+
+        if not plan_result['success']:
+            self.ui.error(f"Planning failed: {plan_result['error']}")
+            return
+
+        # Display plan summary
+        print()
+        self.ui.header("📋 Plan Created", level=2)
+        print()
+        print(self.ui.color(plan_result['plan_summary'], Color.GREEN))
+        print()
+        print(f"{self.ui.color('Tasks created:', Color.CYAN)} {plan_result['tasks_created']}")
+        print(f"{self.ui.color('Estimated time:', Color.CYAN)} {plan_result['estimated_time']}")
+        print()
+
+        # Display tasks
+        for i, task in enumerate(plan_result['tasks'], 1):
+            tier_color = Color.GREEN if task.min_tier == "nano" else (Color.YELLOW if task.min_tier == "deepseek" else Color.RED)
+            print(f"  {i}. {self.ui.color(task.description, Color.WHITE)}")
+            print(f"     {self.ui.color(f'Tier: {task.min_tier}', tier_color)} | {self.ui.color(f'Status: {task.status.value}', Color.BRIGHT_BLACK)}")
+            print()
+
+        # Update costs
+        self.total_cost += plan_result['cost']
+
+        self.ui.success(f"Plan created! Use 'next' to start execution. Cost: ${plan_result['cost']:.6f}")
+
+    def cmd_show_todos(self):
+        """Show TodoList"""
+        self.ui.header("📋 TodoList", level=2)
+
+        summary = self.todo_manager.get_tasks_summary()
+
+        if summary['total'] == 0:
+            self.ui.info("No tasks in the TodoList")
+            print()
+            self.ui.info("💡 Tip: Use planning requests to create tasks automatically")
+            return
+
+        # Show summary
+        print(f"{self.ui.color('Total:', Color.CYAN)} {summary['total']} tasks")
+        print(f"{self.ui.color('Pending:', Color.YELLOW)} {summary['pending']}")
+        print(f"{self.ui.color('In Progress:', Color.BLUE)} {summary['in_progress']}")
+        print(f"{self.ui.color('Completed:', Color.GREEN)} {summary['completed']}")
+        print(f"{self.ui.color('Progress:', Color.MAGENTA)} {summary['progress_percent']:.1f}%")
+        print()
+
+        # Show tasks
+        all_tasks = self.todo_manager.get_all_tasks()
+
+        for task in all_tasks:
+            status_icon = "⏳" if task.status == TaskStatus.PENDING else ("🔄" if task.status == TaskStatus.IN_PROGRESS else "✅")
+            status_color = Color.YELLOW if task.status == TaskStatus.PENDING else (Color.BLUE if task.status == TaskStatus.IN_PROGRESS else Color.GREEN)
+            tier_color = Color.GREEN if task.min_tier == "nano" else (Color.YELLOW if task.min_tier == "deepseek" else Color.RED)
+
+            print(f"{status_icon} {self.ui.color(task.description, Color.WHITE, bold=(task.status == TaskStatus.IN_PROGRESS))}")
+            print(f"   {self.ui.color(f'Tier: {task.min_tier}', tier_color)} | {self.ui.color(f'Status: {task.status.value}', status_color)}")
+            print(f"   {self.ui.color(f'Context: {task.context[:80]}...', Color.BRIGHT_BLACK)}")
+            print()
+
+    def cmd_execute_next_task(self):
+        """Execute next pending task from TodoList"""
+        # Check if there's a task in progress
+        current_task = self.todo_manager.get_current_task()
+        if current_task:
+            self.ui.warning(f"Task already in progress: {current_task.description}")
+            print()
+            self.ui.info("Complete current task before starting next one")
+            return
+
+        # Get next pending task
+        next_task = self.todo_manager.get_next_pending_task()
+
+        if not next_task:
+            self.ui.info("No pending tasks in TodoList")
+            return
+
+        # Mark as in progress
+        self.todo_manager.update_task_status(next_task.id, TaskStatus.IN_PROGRESS)
+
+        # Execute the task
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Executing task: {next_task.description}")
+        print()
+
+        # Build task description with context
+        full_description = f"{next_task.description}\n\nContext: {next_task.context}"
+
+        # Execute
+        self.cmd_task(full_description)
+
+        # Check if the task used git commit - if so, mark as completed
+        # This is a simplified check - in real scenario, we'd check tool_calls
+        if "git" in next_task.description.lower() and "commit" in next_task.description.lower():
+            self.todo_manager.update_task_status(next_task.id, TaskStatus.COMPLETED)
+            print()
+            self.ui.success(f"Task '{next_task.description}' marked as completed!")
+
+            # Automatically start next task if available
+            next_next_task = self.todo_manager.get_next_pending_task()
+            if next_next_task:
+                print()
+                self.ui.info(f"Next task available: {next_next_task.description}")
+                print()
+                response = input(f"{self.ui.color('Execute next task automatically? (y/n):', Color.CYAN)} ").strip().lower()
+                if response == 'y':
+                    print()
+                    self.cmd_execute_next_task()
+        else:
+            # Manual marking
+            self.todo_manager.update_task_status(next_task.id, TaskStatus.COMPLETED)
+            print()
+            self.ui.success(f"Task '{next_task.description}' completed!")
+
+    def cmd_conversation_stats(self):
+        """Show conversation statistics"""
+        self.ui.header("💬 Conversation Statistics", level=2)
+
+        stats = self.conversation_manager.get_statistics()
+
+        print(f"{self.ui.color('Total sections:', Color.CYAN)} {stats['total_sections']}")
+        print(f"{self.ui.color('Current section messages:', Color.CYAN)} {stats['current_section_messages']}")
+        print(f"{self.ui.color('Current section tokens:', Color.CYAN)} {stats['current_section_tokens']}")
+        print(f"{self.ui.color('Total tokens:', Color.CYAN)} {stats['total_tokens']}")
+        print(f"{self.ui.color('Has global summary:', Color.CYAN)} {'Yes' if stats['has_global_summary'] else 'No'}")
+        print()
+        print(f"{self.ui.color('Thresholds:', Color.MAGENTA)}")
+        print(f"  Section: {stats['section_threshold']} tokens")
+        print(f"  Global: {stats['global_threshold']} tokens")
+        print()
+
+        # Progress bar for current section
+        progress = stats['current_section_tokens'] / stats['section_threshold']
+        print(self.ui.progress_bar(
+            int(progress * 100),
+            100,
+            width=50,
+            label=f"Section progress ({stats['current_section_tokens']}/{stats['section_threshold']})"
+        ))
 
 
 def main():
