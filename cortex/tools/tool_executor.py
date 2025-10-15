@@ -164,14 +164,14 @@ class ToolExecutor:
         """Exécute un tool call"""
         tool_name = tool_call.name
 
+        print(f"  🔧 Executing tool: {tool_name}")
         if verbose:
-            print(f"  - Executing tool: {tool_name}")
+            print(f"     Arguments: {tool_call.arguments}")
 
         # Vérifier que le tool existe
         if tool_name not in self.tools:
             error_msg = f"Tool '{tool_name}' not found"
-            if verbose:
-                print(f"    ERROR: {error_msg}")
+            print(f"    ❌ ERROR: {error_msg}")
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call.id,
@@ -185,8 +185,7 @@ class ToolExecutor:
         # Valider les paramètres
         valid, error = tool.validate_params(tool_call.arguments)
         if not valid:
-            if verbose:
-                print(f"    ERROR: {error}")
+            print(f"    ❌ VALIDATION ERROR: {error}")
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call.id,
@@ -199,8 +198,15 @@ class ToolExecutor:
         try:
             result = tool.execute(**tool_call.arguments)
 
-            if verbose:
-                print(f"    SUCCESS: {result}")
+            # Vérifier si c'est un succès ou un échec
+            is_success = True
+            if isinstance(result, dict):
+                is_success = result.get("success", True)
+
+            if is_success:
+                print(f"    ✅ SUCCESS: {self._format_result(result)}")
+            else:
+                print(f"    ⚠️  PARTIAL SUCCESS: {self._format_result(result)}")
 
             return ExecutionResult(
                 tool_name=tool_name,
@@ -210,8 +216,7 @@ class ToolExecutor:
             )
         except Exception as e:
             error_msg = f"Execution error: {str(e)}"
-            if verbose:
-                print(f"    ERROR: {error_msg}")
+            print(f"    ❌ EXECUTION ERROR: {error_msg}")
 
             return ExecutionResult(
                 tool_name=tool_name,
@@ -220,6 +225,23 @@ class ToolExecutor:
                 result=None,
                 error=error_msg
             )
+
+    def _format_result(self, result: Any) -> str:
+        """Formate le résultat pour affichage"""
+        if isinstance(result, dict):
+            if "success" in result:
+                if result["success"]:
+                    data = result.get("data", result)
+                    if isinstance(data, str) and len(data) > 100:
+                        return f"{str(data)[:100]}..."
+                    return str(data)
+                else:
+                    return f"Error: {result.get('error', 'Unknown error')}"
+            return str(result)[:100]
+        elif isinstance(result, str):
+            return result[:100] if len(result) > 100 else result
+        else:
+            return str(result)[:100]
 
 
 # Exemple d'utilisation
