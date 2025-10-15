@@ -178,7 +178,8 @@ class LLMClient:
 
         # Cache miss - appeler le LLM réel
         if tier == ModelTier.NANO:
-            response = self._complete_openai(messages, max_tokens, temperature, formatted_tools, tool_choice, **kwargs)
+            # NANO model requires temperature=1.0 (force it to avoid API errors)
+            response = self._complete_openai(messages, max_tokens, 1.0, formatted_tools, tool_choice, **kwargs)
         elif tier == ModelTier.DEEPSEEK:
             response = self._complete_deepseek(messages, max_tokens, temperature, formatted_tools, tool_choice, **kwargs)
         elif tier == ModelTier.CLAUDE:

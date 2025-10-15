@@ -133,8 +133,8 @@ Réponds UNIQUEMENT avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": detection_prompt}],
                 tier=ModelTier.NANO,  # Rapide et économique
-                max_tokens=200
-                # Note: Nano model only supports temperature=1 (default)
+                max_tokens=200,
+                temperature=1.0  # NANO model requires temperature=1 (default)
             )
 
             # Parser la réponse JSON
@@ -289,8 +289,8 @@ Réponds avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": analysis_prompt}],
                 tier=ModelTier.NANO,
-                max_tokens=200
-                # Note: Nano model only supports temperature=1 (default)
+                max_tokens=200,
+                temperature=1.0  # NANO model requires temperature=1 (default)
             )
 
             result = json.loads(response.content.strip())
