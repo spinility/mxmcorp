@@ -102,6 +102,29 @@ class LLMClient:
         else:
             self.anthropic_client = None
 
+    def _clean_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """
+        Clean messages to remove invalid UTF-8 characters
+
+        Args:
+            messages: Original messages
+
+        Returns:
+            Cleaned messages safe for API calls
+        """
+        cleaned = []
+        for msg in messages:
+            cleaned_msg = {}
+            for key, value in msg.items():
+                if isinstance(value, str):
+                    # Remove surrogate characters and other invalid UTF-8
+                    cleaned_value = value.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
+                    cleaned_msg[key] = cleaned_value
+                else:
+                    cleaned_msg[key] = value
+            cleaned.append(cleaned_msg)
+        return cleaned
+
     def complete(
         self,
         messages: List[Dict[str, str]],
@@ -127,6 +150,8 @@ class LLMClient:
         Returns:
             LLMResponse avec le contenu et les métadonnées
         """
+        # Clean messages to prevent UTF-8 encoding errors
+        messages = self._clean_messages(messages)
         # Vérifier le cache d'abord
         if self.cache:
             cache_result = self.cache.get(messages, tier.value, max_tokens)

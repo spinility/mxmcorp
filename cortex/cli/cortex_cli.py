@@ -27,6 +27,13 @@ from cortex.cli.terminal_ui import (
     show_help
 )
 
+# Cortex core components
+from cortex.core.llm_client import LLMClient
+from cortex.core.model_router import ModelRouter
+from cortex.tools.tool_executor import ToolExecutor
+from cortex.tools.builtin_tools import get_all_builtin_tools
+from cortex.tools.web_tools import get_all_web_tools
+
 
 class CortexCLI:
     """Interactive CLI for Cortex"""
@@ -37,7 +44,26 @@ class CortexCLI:
         self.running = True
         self.history: List[str] = []
 
-        # Mock data (replace with real system later)
+        # Real LLM components
+        self.llm_client = LLMClient()
+        self.model_router = ModelRouter()
+        self.tool_executor = ToolExecutor(self.llm_client)
+
+        # Register built-in tools
+        self.available_tools = get_all_builtin_tools()
+
+        # Register web tools (search, fetch, weather)
+        web_tools = get_all_web_tools()
+        self.available_tools.extend(web_tools)
+
+        # Register all tools with executor
+        for tool in self.available_tools:
+            self.tool_executor.register_tool(tool)
+
+        # Conversation history for context
+        self.conversation_history: List[Dict[str, Any]] = []
+
+        # Mock data for display (will be updated by real tasks)
         self.agents = [
             {"name": "CEO", "role": "Strategic Director", "status": "idle", "tasks_completed": 0},
             {"name": "CTO", "role": "Technical Director", "status": "idle", "tasks_completed": 0},
@@ -52,6 +78,9 @@ class CortexCLI:
             "claude": 0.0,
         }
 
+        self.total_cost = 0.0
+        self.total_tokens = 0
+
     def run(self):
         """Main CLI loop"""
         # Show startup screen
@@ -59,6 +88,7 @@ class CortexCLI:
 
         # Welcome message
         self.ui.info(f"Welcome to {self.ui.color('Cortex', Color.CYAN, bold=True)}! Type {self.ui.color('help', Color.YELLOW)} for available commands.")
+        self.ui.info(f"You can also type natural language requests directly (e.g., {self.ui.color('create a file test.md', Color.GREEN)})")
         print()
 
         # Main loop
@@ -121,6 +151,9 @@ class CortexCLI:
         elif cmd == "history":
             self.cmd_history()
 
+        elif cmd == "clear-history":
+            self.cmd_clear_history()
+
         elif cmd == "exit" or cmd == "quit":
             self.running = False
 
@@ -131,8 +164,10 @@ class CortexCLI:
             self.cmd_demo()
 
         else:
-            self.ui.error(f"Unknown command: {cmd}")
-            self.ui.info(f"Type {self.ui.color('help', Color.YELLOW)} for available commands")
+            # Not a recognized command - treat as natural language task
+            self.ui.info("Treating input as natural language task...")
+            print()
+            self.cmd_task(command)
 
         print()
 
@@ -169,33 +204,224 @@ Total Cost: ${sum(self.costs.values()):.6f}
         show_cost_summary(self.costs, self.ui)
 
     def cmd_task(self, description: str):
-        """Execute a task (mock)"""
+        """Execute a task with real LLM and tools"""
         self.ui.header(f"Executing Task", level=2)
-        print(f"Task: {self.ui.color(description, Color.CYAN)}")
+
+        # Display user message with VERY visible styling
+        user_msg_box = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 👤 USER REQUEST                                                              ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃ {description:<76s} ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+        """.strip()
+        print(self.ui.color(user_msg_box, Color.BRIGHT_YELLOW, bold=True))
         print()
 
-        # Simulate task execution
-        steps = [
-            "Analyzing task with nano self-assessment",
-            "Detected severity: MEDIUM",
-            "Confidence: HIGH - nano can handle",
-            "Building semantic context (900 tokens)",
-            "Executing with nano model",
-            "Validating output",
-        ]
+        try:
+            # Step 1: Model selection
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Selecting optimal model...")
+            selection = self.model_router.select_model(description)
+            print(f"  Using {self.ui.color(selection.model_name, Color.GREEN)} (${selection.estimated_cost:.6f}/1M tokens)")
+            print()
 
-        for i, step in enumerate(steps, 1):
-            bar = self.ui.progress_bar(i, len(steps), width=40, label=f"")
-            print(f"{bar}  {step}")
-            import time
-            time.sleep(0.3)
+            # Step 2: Build messages with agent prompt
+            messages = self._build_agent_messages(description)
 
-        print()
-        self.ui.success("Task completed successfully!")
+            # Step 3: Execute with tools
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Executing with {len(self.available_tools)} tools available...")
+            print()
 
-        # Update mock data
-        self.agents[0]["tasks_completed"] += 1
-        self.costs["nano"] += 0.000123
+            response = self.tool_executor.execute_with_tools(
+                messages=messages,
+                tier=selection.tier,
+                tools=self.available_tools,
+                max_tokens=2048,
+                temperature=1.0,
+                verbose=True  # Activer verbose pour voir les étapes
+            )
+
+            # Step 4: Display results
+            print()
+            if response.tool_calls:
+                self.ui.info(f"Tool calls executed: {len(response.tool_calls)}")
+                for i, tc in enumerate(response.tool_calls, 1):
+                    print(f"  {i}. {self.ui.color(tc.get('name', 'unknown'), Color.YELLOW)}")
+                print()
+
+            # Display response with colors
+            print()
+            if response.content and response.content.strip():
+                # Afficher la réponse colorisée
+                colored_response = self._colorize_response(response.content)
+                print(colored_response)
+                print()
+            else:
+                # Fallback: générer une réponse basique
+                self.ui.warning("⚠️ LLM returned empty response - generating fallback")
+                print()
+
+                fallback_response = f"""🎯 **Résultat:** Je ne peux pas répondre à cette requête actuellement.
+
+💭 **Confiance:** FAIBLE - Le modèle n'a pas généré de réponse.
+
+⚠️ **Gravité si erreur:** MOYENNE - Requête non traitée.
+
+🔧 **Actions:** Aucune - Réponse fallback générée."""
+
+                if not any(tool in description.lower() for tool in ['météo', 'weather', 'température', 'temperature']):
+                    fallback_response = f"""🎯 **Résultat:** Réponse non générée par le LLM.
+
+💭 **Confiance:** FAIBLE - Problème technique avec le modèle.
+
+⚠️ **Gravité si erreur:** MOYENNE - Service temporairement indisponible.
+
+🔧 **Actions:** Aucune - Veuillez réessayer ou reformuler la requête."""
+                else:
+                    # Requête météo spécifique
+                    fallback_response = f"""🎯 **Résultat:** Je n'ai pas d'outil météo actuellement. Je vais demander au Tools Department de créer un outil "get_weather" pour obtenir les données météo en temps réel.
+
+💭 **Confiance:** MOYENNE - Tool manquant mais peut être créé.
+
+⚠️ **Gravité si erreur:** FAIBLE - Information météo non critique.
+
+🔧 **Actions:** Demande de création d'outil "get_weather" au Tools Department."""
+
+                colored_fallback = self._colorize_response(fallback_response)
+                print(colored_fallback)
+                print()
+
+            # Update costs
+            tier_name = selection.tier.value.lower()
+            if tier_name in self.costs:
+                self.costs[tier_name] += response.cost
+            self.total_cost += response.cost
+            self.total_tokens += response.tokens_input + response.tokens_output
+
+            # Update agent stats
+            self.agents[0]["tasks_completed"] += 1
+
+            # Save to history
+            self.conversation_history.append({
+                "user": description,
+                "assistant": response.content,
+                "model": response.model,
+                "cost": response.cost,
+                "tool_calls": len(response.tool_calls) if response.tool_calls else 0
+            })
+
+            # Success message
+            self.ui.success(f"Task completed! Cost: ${response.cost:.6f} | Tokens: {response.tokens_input + response.tokens_output}")
+
+        except Exception as e:
+            print()
+            error_msg = str(e)
+
+            # Provide helpful error messages
+            if "UTF-8" in error_msg or "surrogate" in error_msg:
+                self.ui.error("Erreur d'encodage UTF-8 détectée")
+                self.ui.info("💡 Astuce: L'historique de conversation contient des caractères invalides.")
+                self.ui.info("💡 Solution: Redémarrez le Cortex pour nettoyer l'historique.")
+            elif "API key" in error_msg or "authentication" in error_msg.lower():
+                self.ui.error("Erreur d'authentification API")
+                self.ui.info("💡 Vérifiez vos clés API dans le fichier de configuration.")
+            elif "timeout" in error_msg.lower() or "connection" in error_msg.lower():
+                self.ui.error("Erreur de connexion réseau")
+                self.ui.info("💡 Vérifiez votre connexion internet et réessayez.")
+            else:
+                self.ui.error(f"Task failed: {error_msg[:100]}")
+
+            # Show full traceback only in debug mode
+            if self.config.get("system.debug", False):
+                import traceback
+                print()
+                self.ui.warning("Debug traceback:")
+                traceback.print_exc()
+
+    def _colorize_response(self, response: str) -> str:
+        """Colorize response with emoji-based sections"""
+        import re
+
+        lines = response.split('\n')
+        colored_lines = []
+
+        for line in lines:
+            # Section headers with emojis
+            if line.startswith('🎯'):
+                colored_lines.append(self.ui.color(line, Color.BRIGHT_GREEN, bold=True))
+            elif line.startswith('💭'):
+                # Color confidence level
+                if 'HAUTE' in line:
+                    colored_lines.append(self.ui.color(line, Color.GREEN, bold=True))
+                elif 'MOYENNE' in line:
+                    colored_lines.append(self.ui.color(line, Color.YELLOW, bold=True))
+                else:  # FAIBLE
+                    colored_lines.append(self.ui.color(line, Color.RED, bold=True))
+            elif line.startswith('⚠️'):
+                # Color severity level
+                if 'CRITIQUE' in line:
+                    colored_lines.append(self.ui.color(line, Color.RED, bold=True))
+                elif 'HAUTE' in line:
+                    colored_lines.append(self.ui.color(line, Color.BRIGHT_RED, bold=True))
+                elif 'MOYENNE' in line:
+                    colored_lines.append(self.ui.color(line, Color.YELLOW, bold=True))
+                else:  # FAIBLE
+                    colored_lines.append(self.ui.color(line, Color.GREEN, bold=True))
+            elif line.startswith('🔧'):
+                colored_lines.append(self.ui.color(line, Color.CYAN, bold=True))
+            elif line.strip().startswith('•'):
+                # Bullet points
+                colored_lines.append(self.ui.color(line, Color.BRIGHT_CYAN))
+            elif line.strip().startswith('**') or '**' in line:
+                # Bold text
+                colored_lines.append(self.ui.color(line, Color.WHITE, bold=True))
+            else:
+                # Regular text
+                colored_lines.append(line)
+
+        return '\n'.join(colored_lines)
+
+    def _build_agent_messages(self, task: str) -> List[Dict[str, str]]:
+        """Build messages for the LLM with agent prompt"""
+        # Generate list of available tools
+        tools_list = "\n".join([f"  - {tool.name}: {tool.description}" for tool in self.available_tools])
+
+        system_prompt = f"""Tu es Cortex, un agent intelligent avec des outils.
+
+OUTILS DISPONIBLES:
+{tools_list}
+
+RÈGLES:
+1. Si tu as l'outil nécessaire: UTILISE-LE directement
+2. Si l'outil n'existe pas: Explique que tu vas le demander au Tools Department
+3. TOUJOURS utiliser ce format de réponse:
+
+🎯 **Résultat:** [Réponse principale en 1-2 phrases]
+
+💭 **Confiance:** [HAUTE/MOYENNE/FAIBLE] - [Raison courte]
+
+⚠️ **Gravité si erreur:** [CRITIQUE/HAUTE/MOYENNE/FAIBLE] - [Impact court]
+
+🔧 **Actions:** [Tools utilisés ou "Aucun tool disponible"]
+
+EXEMPLE:
+🎯 **Résultat:** Fichier créé avec succès.
+💭 **Confiance:** HAUTE - Tool confirmé.
+⚠️ **Gravité si erreur:** FAIBLE - Peut recréer.
+🔧 **Actions:** create_file()
+"""
+
+        messages = [{"role": "system", "content": system_prompt}]
+
+        # Add recent conversation history (last 5 exchanges)
+        for exchange in self.conversation_history[-5:]:
+            messages.append({"role": "user", "content": exchange["user"]})
+            messages.append({"role": "assistant", "content": exchange["assistant"]})
+
+        # Add current task
+        messages.append({"role": "user", "content": task})
+
+        return messages
 
     def cmd_clear(self):
         """Clear screen"""
@@ -211,6 +437,14 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
         for i, cmd in enumerate(self.history[-10:], 1):
             print(f"  {self.ui.color(f'{i:2d}', Color.BRIGHT_BLACK)} {cmd}")
+
+    def cmd_clear_history(self):
+        """Clear conversation history"""
+        old_count = len(self.conversation_history)
+        self.conversation_history.clear()
+
+        self.ui.success(f"Conversation history cleared ({old_count} messages removed)")
+        self.ui.info("💡 Context has been reset. Fresh start!")
 
     def cmd_logo(self):
         """Show logo"""

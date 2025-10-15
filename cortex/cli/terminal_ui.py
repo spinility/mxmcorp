@@ -224,7 +224,7 @@ class TerminalUI:
             print(f"\n{self.color(text, Color.MAGENTA)}")
 
 
-# ASCII Logo
+# ASCII Logo - Cleaner and more readable
 CORTEX_LOGO = """
    ███╗   ███╗██╗  ██╗███╗   ███╗     ██████╗ ██████╗ ██████╗ ██████╗
    ████╗ ████║╚██╗██╔╝████╗ ████║    ██╔════╝██╔═══██╗██╔══██╗██╔══██╗
@@ -233,16 +233,12 @@ CORTEX_LOGO = """
    ██║ ╚═╝ ██║██╔╝ ██╗██║ ╚═╝ ██║    ╚██████╗╚██████╔╝██║  ██║██║
    ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝     ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 
-    ▄████▄   ▒█████   ██▀███  ▄▄▄█████▓▓█████ ▒██   ██▒
-   ▒██▀ ▀█  ▒██▒  ██▒▓██ ▒ ██▒▓  ██▒ ▓▒▓█   ▀ ▒▒ █ █ ▒░
-   ▒▓█    ▄ ▒██░  ██▒▓██ ░▄█ ▒▒ ▓██░ ▒░▒███   ░░  █   ░
-   ▒▓▓▄ ▄██▒▒██   ██░▒██▀▀█▄  ░ ▓██▓ ░ ▒▓█  ▄  ░ █ █ ▒
-   ▒ ▓███▀ ░░ ████▓▒░░██▓ ▒██▒  ▒██▒ ░ ░▒████▒▒██▒ ▒██▒
-   ░ ░▒ ▒  ░░ ▒░▒░▒░ ░ ▒▓ ░▒▓░  ▒ ░░   ░░ ▒░ ░▒▒ ░ ░▓ ░
-     ░  ▒     ░ ▒ ▒░   ░▒ ░ ▒░    ░     ░ ░  ░░░   ░▒ ░
-   ░        ░ ░ ░ ▒    ░░   ░   ░         ░    ░    ░
-   ░ ░          ░ ░     ░                 ░  ░ ░    ░
-   ░
+    ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗
+   ██╔════╝██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝
+   ██║     ██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝
+   ██║     ██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗
+   ╚██████╗╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗
+    ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
 """
 
 CORTEX_TAGLINE = "AI Agent Orchestration System"
@@ -262,11 +258,11 @@ def show_startup_screen(ui: Optional[TerminalUI] = None, show_system_info: bool 
     # Clear screen
     print("\033[2J\033[H", end="")
 
-    # Logo with gradient effect
+    # Logo with gradient effect - BRIGHT colors for better visibility
     print()
     for line in CORTEX_LOGO.split("\n"):
         if line.strip():
-            print(ui.gradient(line, Color.CYAN, Color.BLUE))
+            print(ui.gradient(line, Color.BRIGHT_CYAN, Color.BRIGHT_WHITE))
 
     # Tagline
     tagline = f"         {CORTEX_TAGLINE}         "
@@ -406,9 +402,11 @@ def show_help(ui: Optional[TerminalUI] = None):
 
     commands = [
         ("status", "Show system and agent status"),
-        ("task <description>", "Execute a task"),
+        ("task <description>", "Execute a task with LLM and tools"),
         ("agents", "List all available agents"),
         ("costs", "Show cost breakdown"),
+        ("history", "Show command history"),
+        ("clear-history", "Clear conversation history (fix UTF-8 errors)"),
         ("clear", "Clear the screen"),
         ("help", "Show this help message"),
         ("exit", "Exit Cortex"),
@@ -417,6 +415,29 @@ def show_help(ui: Optional[TerminalUI] = None):
     for cmd, desc in commands:
         print(f"  {ui.color(cmd, Color.CYAN, bold=True):30s} {desc}")
 
+    print()
+
+    ui.header("Natural Language Mode", level=2)
+    print("  You can also type natural language requests directly!")
+    print()
+    print("  " + ui.color("Examples:", Color.YELLOW, bold=True))
+    print(f"    {ui.color('→', Color.CYAN)} create a file test.md")
+    print(f"    {ui.color('→', Color.CYAN)} list all Python files in the current directory")
+    print(f"    {ui.color('→', Color.CYAN)} read the content of README.md")
+    print()
+    print("  " + ui.color("Available Tools:", Color.YELLOW, bold=True))
+    print()
+    print("  " + ui.color("File Operations:", Color.CYAN))
+    print(f"    {ui.color('•', Color.GREEN)} create_file - Create files with content")
+    print(f"    {ui.color('•', Color.GREEN)} read_file - Read file contents")
+    print(f"    {ui.color('•', Color.GREEN)} append_to_file - Append to existing files")
+    print(f"    {ui.color('•', Color.GREEN)} list_directory - List directory contents")
+    print(f"    {ui.color('•', Color.GREEN)} file_exists - Check if files exist")
+    print()
+    print("  " + ui.color("Web & Real-Time:", Color.CYAN))
+    print(f"    {ui.color('•', Color.BRIGHT_GREEN)} web_search - Search the web in real-time")
+    print(f"    {ui.color('•', Color.BRIGHT_GREEN)} web_fetch - Fetch web page content")
+    print(f"    {ui.color('•', Color.BRIGHT_GREEN)} get_weather - Get current weather data")
     print()
 
 

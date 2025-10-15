@@ -23,6 +23,8 @@ try:
     from cortex.core.model_router import ModelRouter
     from cortex.core.partial_updater import PartialUpdater
     from cortex.core.llm_client import LLMClient
+    from cortex.tools.tool_executor import ToolExecutor
+    from cortex.tools.builtin_tools import get_all_builtin_tools
 except ImportError:
     print("Error: Unable to import cortex modules")
     print("Make sure you're running from the project root directory")
@@ -48,6 +50,12 @@ class CortexCLI:
         self.model_router = ModelRouter()
         self.partial_updater = PartialUpdater()
         self.llm_client = LLMClient()
+
+        # Tools - Initialiser avec les built-in tools
+        self.tool_executor = ToolExecutor(self.llm_client)
+        self.available_tools = get_all_builtin_tools()
+        for tool in self.available_tools:
+            self.tool_executor.register_tool(tool)
 
         # Session prompt
         history_file = self.config.get("cli.history_file", ".mxm_history")
@@ -140,17 +148,19 @@ class CortexCLI:
             tokens_out = len(response_text.split()) * 1.3
             cost = 0.0
         else:
-            # Appel LLM réel
+            # Appel LLM réel avec tools
             try:
                 # Construire les messages
                 messages = self._build_messages(user_input)
 
-                # Appeler le LLM
-                response = self.llm_client.complete(
+                # Appeler le LLM avec tools via ToolExecutor
+                response = self.tool_executor.execute_with_tools(
                     messages=messages,
                     tier=selection.tier,
+                    tools=self.available_tools,
                     max_tokens=2048,
-                    temperature=1.0  # DeepSeek reasoner ne supporte que temperature=1
+                    temperature=1.0,  # DeepSeek reasoner ne supporte que temperature=1
+                    verbose=self.config.get("system.debug", False)
                 )
 
                 response_text = response.content
@@ -163,7 +173,8 @@ class CortexCLI:
                     "user": user_input,
                     "assistant": response_text,
                     "model": response.model,
-                    "cost": cost
+                    "cost": cost,
+                    "tool_calls": len(response.tool_calls) if response.tool_calls else 0
                 })
 
             except Exception as e:
@@ -196,15 +207,30 @@ class CortexCLI:
 
     def _build_messages(self, user_input: str):
         """Construit les messages pour le LLM avec historique"""
+        # Générer la liste des tools disponibles
+        tools_list = "\n".join([f"  - {tool.name}: {tool.description}" for tool in self.available_tools])
+
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "Tu es Cortex MXMCorp, un système agentique intelligent optimisé "
-                    "pour l'efficacité maximale et les coûts minimaux. "
-                    "Tu peux analyser des requêtes, générer du code, créer des outils, "
-                    "et coordonner des agents pour accomplir des tâches complexes. "
-                    "Sois concis mais précis dans tes réponses."
+                    "Tu es Cortex MXMCorp, un AGENT AUTONOME intelligent qui peut effectuer des actions concrètes.\n\n"
+                    "IMPORTANT - TU ES UN AGENT, PAS UN CHATBOT:\n"
+                    "- Tu as accès à des TOOLS (outils) que tu DOIS utiliser pour accomplir les tâches\n"
+                    "- Quand l'utilisateur demande de créer un fichier, tu DOIS utiliser le tool create_file\n"
+                    "- Quand l'utilisateur demande de lire du code, tu DOIS utiliser le tool read_file\n"
+                    "- NE DIS JAMAIS \"Je ne peux pas faire X\". Si tu as le tool nécessaire, UTILISE-LE directement\n"
+                    "- NE SUGGÈRE JAMAIS à l'utilisateur de faire des commandes manuellement. FAIS-LES TOI-MÊME avec tes tools\n\n"
+                    f"TOOLS DISPONIBLES:\n{tools_list}\n\n"
+                    "Comportement attendu:\n"
+                    "1. Analyse la requête de l'utilisateur\n"
+                    "2. Identifie quels tools sont nécessaires\n"
+                    "3. APPELLE les tools directement (via function calling)\n"
+                    "4. Rapporte le résultat à l'utilisateur de façon concise\n\n"
+                    "Philosophie: Efficacité maximale, coûts minimaux. Sois concis mais précis.\n\n"
+                    "Exemples de bon comportement:\n"
+                    "❌ Mauvais: \"Je ne peux pas créer de fichier, mais voici comment: touch test.md\"\n"
+                    "✅ Bon: [Appelle create_file(file_path='test.md', content='')] \"✓ Fichier test.md créé avec succès.\"\n"
                 )
             }
         ]
