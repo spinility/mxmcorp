@@ -217,7 +217,7 @@ class LLMClient:
             raise RuntimeError("DeepSeek client not initialized. Check API key.")
 
         model_config = self.models_config.get("deepseek", {})
-        model_name = model_config.get("name", "deepseek-chat")
+        model_name = model_config.get("name", "deepseek-reasoner")
 
         try:
             response = self.deepseek_client.chat.completions.create(
