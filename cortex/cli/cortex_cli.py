@@ -34,6 +34,8 @@ from cortex.core.prompt_engineer import PromptEngineer
 from cortex.tools.tool_executor import ToolExecutor
 from cortex.tools.builtin_tools import get_all_builtin_tools
 from cortex.tools.web_tools import get_all_web_tools
+from cortex.tools.git_tools import get_all_git_tools
+from cortex.tools.pip_tools import get_all_pip_tools
 
 # Cortex agents
 from cortex.agents import create_tooler_agent, create_communications_agent
@@ -67,6 +69,14 @@ class CortexCLI:
         # Register web tools (search, fetch, weather)
         web_tools = get_all_web_tools()
         self.available_tools.extend(web_tools)
+
+        # Register git tools (status, add, commit, push, pull, log)
+        git_tools = get_all_git_tools()
+        self.available_tools.extend(git_tools)
+
+        # Register pip tools (install, uninstall, list, show, freeze)
+        pip_tools = get_all_pip_tools()
+        self.available_tools.extend(pip_tools)
 
         # Register all tools with executor
         for tool in self.available_tools:

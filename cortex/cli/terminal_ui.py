@@ -439,6 +439,21 @@ def show_help(ui: Optional[TerminalUI] = None):
     print(f"    {ui.color('•', Color.BRIGHT_GREEN)} web_fetch - Fetch web page content")
     print(f"    {ui.color('•', Color.BRIGHT_GREEN)} get_weather - Get current weather data")
     print()
+    print("  " + ui.color("Git Operations:", Color.CYAN))
+    print(f"    {ui.color('•', Color.YELLOW)} git_status - Show working tree status")
+    print(f"    {ui.color('•', Color.YELLOW)} git_add - Add files to staging area")
+    print(f"    {ui.color('•', Color.YELLOW)} git_commit - Create commits")
+    print(f"    {ui.color('•', Color.YELLOW)} git_push - Push to remote")
+    print(f"    {ui.color('•', Color.YELLOW)} git_pull - Pull from remote")
+    print(f"    {ui.color('•', Color.YELLOW)} git_log - Show commit history")
+    print()
+    print("  " + ui.color("Python Package Management:", Color.CYAN))
+    print(f"    {ui.color('•', Color.MAGENTA)} pip_install - Install Python packages")
+    print(f"    {ui.color('•', Color.MAGENTA)} pip_uninstall - Uninstall packages")
+    print(f"    {ui.color('•', Color.MAGENTA)} pip_list - List installed packages")
+    print(f"    {ui.color('•', Color.MAGENTA)} pip_show - Show package info")
+    print(f"    {ui.color('•', Color.MAGENTA)} pip_freeze - Export requirements")
+    print()
 
 
 # Demo
