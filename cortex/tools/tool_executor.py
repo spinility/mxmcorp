@@ -49,7 +49,7 @@ class ToolExecutor:
         messages: List[Dict[str, str]],
         tier: ModelTier = ModelTier.DEEPSEEK,
         max_tokens: int = 2048,
-        temperature: float = 0.7,
+        temperature: float = 1.0,
         tools: Optional[List[StandardTool]] = None,
         verbose: bool = False
     ) -> LLMResponse:
