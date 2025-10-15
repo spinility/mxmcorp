@@ -1,0 +1,144 @@
+# Configuration des modèles LLM - Optimisé pour coûts minimaux
+# Philosophie: Toujours utiliser le modèle le moins cher qui fait le job
+
+models:
+  # TIER 1: Ultra-économique (tâches simples, parsing, classification)
+  nano:
+    name: "gpt-5-nano"
+    provider: "openai"
+    cost_per_1m_input: 0.0001
+    cost_per_1m_output: 0.0002
+    max_tokens: 4096
+    context_window: 16384
+    use_cases:
+      - "parsing simple"
+      - "classification"
+      - "extraction données"
+      - "validation format"
+      - "routing simple"
+    speed: "ultra-rapide"
+
+  # TIER 2: Moyen (tâches complexes, génération code, raisonnement)
+  deepseek:
+    name: "deepseek-v3.2-exp"
+    provider: "deepseek"
+    cost_per_1m_input: 0.15
+    cost_per_1m_output: 0.60
+    max_tokens: 8192
+    context_window: 65536
+    use_cases:
+      - "génération code"
+      - "refactoring"
+      - "analyse complexe"
+      - "debugging"
+      - "architecture"
+    speed: "rapide"
+
+  # TIER 3: Premium (décisions critiques, très haute complexité)
+  claude:
+    name: "claude-sonnet-4-5"
+    provider: "anthropic"
+    cost_per_1m_input: 3.0
+    cost_per_1m_output: 15.0
+    max_tokens: 8192
+    context_window: 200000
+    use_cases:
+      - "décisions stratégiques"
+      - "architecture complexe"
+      - "revue critique"
+      - "situations ambiguës"
+      - "créativité maximale"
+    speed: "standard"
+
+# Règles de sélection automatique
+routing_rules:
+  # Analyse de complexité (score 0-10)
+  complexity_thresholds:
+    nano: 0-3        # Tâches déterministes simples
+    deepseek: 3-8    # Tâches nécessitant raisonnement
+    claude: 8-10     # Haute complexité, ambiguïté
+
+  # Routing par type de tâche
+  task_type_routing:
+    "parse": "nano"
+    "classify": "nano"
+    "extract": "nano"
+    "validate": "nano"
+    "simple_query": "nano"
+
+    "code_generation": "deepseek"
+    "code_analysis": "deepseek"
+    "refactor": "deepseek"
+    "debug": "deepseek"
+    "explain": "deepseek"
+    "optimize": "deepseek"
+
+    "strategy": "claude"
+    "architecture": "claude"
+    "critical_decision": "claude"
+    "ambiguous": "claude"
+    "creative": "claude"
+
+  # Routing par rôle d'agent
+  agent_role_routing:
+    "Worker": "nano"           # Workers = tâches simples
+    "Manager": "nano"          # Managers = coordination simple
+    "Director": "deepseek"     # Directors = décisions tactiques
+    "CEO": "claude"            # CEO = décisions stratégiques
+
+  # Tentatives de fallback
+  fallback_strategy:
+    enabled: true
+    # Si nano échoue ou donne résultat médiocre, essayer deepseek
+    # Si deepseek échoue, essayer claude
+    max_retries: 2
+    quality_threshold: 0.7  # Score qualité minimum acceptable
+
+# Optimisations de coûts
+cost_optimization:
+  # Cache agressif
+  cache:
+    enabled: true
+    ttl_hours: 24
+    similarity_threshold: 0.92  # 92% similarité = réutiliser cache
+
+  # Compression de contexte
+  context_compression:
+    enabled: true
+    target_reduction: 0.6  # Réduire de 60% sans perte qualité
+    methods:
+      - "entity_extraction"
+      - "hierarchical_summary"
+      - "token_efficient_encoding"
+
+  # Updates partiels (PRIORITÉ MAXIMALE)
+  partial_updates:
+    enabled: true
+    threshold: 0.3  # Si <30% de changement, update partiel
+    methods:
+      - "diff_based"           # Envoyer seulement le diff
+      - "incremental"          # Update incrémental
+      - "patch_application"    # Application de patches
+      - "context_reuse"        # Réutiliser contexte précédent
+    max_savings: 0.95  # Peut économiser jusqu'à 95% des tokens
+
+  # Budgets par agent
+  daily_budgets:
+    Worker: 0.01      # $0.01/jour max par worker
+    Manager: 0.05     # $0.05/jour max par manager
+    Director: 0.20    # $0.20/jour max par director
+    CEO: 1.00         # $1.00/jour max pour CEO
+
+  # Alertes
+  alerts:
+    daily_cost_limit: 2.00  # Alerte si >$2/jour
+    single_call_limit: 0.10  # Alerte si un appel >$0.10
+
+# Performance targets
+targets:
+  avg_cost_per_task: 0.001      # $0.001 par tâche en moyenne
+  cache_hit_rate: 0.80          # 80% de hits sur cache
+  partial_update_rate: 0.70     # 70% d'updates partiels
+  nano_usage_rate: 0.70         # 70% des appels sur nano
+  deepseek_usage_rate: 0.25     # 25% des appels sur deepseek
+  claude_usage_rate: 0.05       # 5% des appels sur claude

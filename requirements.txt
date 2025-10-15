@@ -1,0 +1,53 @@
+# Cortex MXMCorp Dependencies
+# Optimisé pour performance et coûts minimaux
+
+# LLM APIs
+openai>=1.12.0
+anthropic>=0.18.0
+requests>=2.31.0
+
+# Async & Performance
+asyncio>=3.4.3
+aiohttp>=3.9.0
+uvloop>=0.19.0  # Performance boost pour asyncio
+
+# Database & Storage
+chromadb>=0.4.22  # Vector store
+sqlite3  # Built-in Python
+
+# Cache
+diskcache>=5.6.3  # File-based cache (fallback Redis)
+redis>=5.0.1  # Optional, si Redis disponible
+hiredis>=2.3.2  # Parser C pour Redis (performance)
+
+# CLI & Interface
+prompt-toolkit>=3.0.43  # CLI avancé avec auto-completion
+rich>=13.7.0  # Beautiful CLI output
+click>=8.1.7  # Command parsing
+
+# Configuration
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# Utilities
+pydantic>=2.5.3  # Validation données
+jinja2>=3.1.3  # Templates
+difflib  # Built-in, pour partial updates
+
+# Optimisation & Compression
+tiktoken>=0.5.2  # Token counting (OpenAI)
+transformers>=4.36.0  # Pour tokenization autres modèles
+
+# Logging & Monitoring
+structlog>=24.1.0  # Structured logging
+colorama>=0.4.6  # Colors cross-platform
+
+# Testing
+pytest>=7.4.4
+pytest-asyncio>=0.23.3
+pytest-cov>=4.1.0
+
+# Development
+black>=24.1.0  # Code formatting
+ruff>=0.1.14  # Linting ultra-rapide
+mypy>=1.8.0  # Type checking

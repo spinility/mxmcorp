@@ -1,0 +1,243 @@
+# Configuration principale du Cortex MXMCorp
+# Système agentique intelligent avec optimisation maximale des coûts
+
+system:
+  name: "Cortex MXMCorp"
+  version: "0.1.0"
+  environment: "development"
+  debug: true
+
+# Clés API (à définir via variables d'environnement)
+api_keys:
+  openai_key: "${OPENAI_API_KEY}"
+  deepseek_key: "${DEEPSEEK_API_KEY}"
+  anthropic_key: "${ANTHROPIC_API_KEY}"
+
+# Bases de données
+databases:
+  # SQLite pour démarrage rapide, PostgreSQL en production
+  main:
+    type: "sqlite"
+    path: "data/cortex.db"
+
+  # Vector store pour cache sémantique et mémoire
+  vector:
+    type: "chromadb"
+    path: "data/vectors"
+    collection: "cortex_memory"
+
+  # Cache Redis (optionnel, fichier cache sinon)
+  cache:
+    type: "file"  # "redis" en production
+    path: "data/cache"
+    redis_url: "redis://localhost:6379"
+
+# Système de mémoire
+memory:
+  short_term:
+    type: "circular_buffer"
+    max_items: 50
+    ttl_minutes: 60
+
+  long_term:
+    type: "vector_store"
+    similarity_threshold: 0.85
+    max_results: 5
+
+  working:
+    type: "in_memory"
+    max_size_mb: 100
+
+# Agents
+agents:
+  # Hiérarchie
+  hierarchy:
+    enabled: true
+    max_depth: 4  # CEO > Director > Manager > Worker
+
+  # Configuration par défaut
+  defaults:
+    max_retries: 3
+    timeout_seconds: 120
+    memory_enabled: true
+
+  # Workers spécialisés à créer au démarrage
+  initial_workers:
+    - name: "FileSystemWorker"
+      specialization: "filesystem"
+      tools: ["read_file", "write_file", "search_files", "list_directory"]
+
+    - name: "CodeWorker"
+      specialization: "code"
+      tools: ["analyze_code", "generate_code", "refactor", "test"]
+
+# Outils (Tools)
+tools:
+  # Factory pour création dynamique
+  factory:
+    enabled: true
+    validation: true
+    testing: true
+    versioning: true
+
+  # Catalogue
+  registry:
+    path: "data/tools_registry.json"
+    auto_discover: true
+
+  # Sandbox pour exécution sécurisée
+  sandbox:
+    enabled: true
+    timeout_seconds: 30
+    max_memory_mb: 512
+
+# CLI Interface
+cli:
+  prompt: "mxm> "
+  history_file: ".mxm_history"
+  max_history: 1000
+  color_enabled: true
+
+  # Affichage
+  display:
+    show_cost: true
+    show_tokens: true
+    show_model_used: true
+    show_cache_hit: true
+    verbose: false
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/cortex.log"
+  max_size_mb: 50
+  backup_count: 5
+
+  # Tracking détaillé
+  track:
+    costs: true
+    tokens: true
+    latency: true
+    errors: true
+    cache_hits: true
+
+# Métriques et monitoring
+metrics:
+  enabled: true
+  export_interval_minutes: 60
+
+  reports:
+    daily: true
+    weekly: true
+    monthly: true
+
+  targets:
+    daily_cost_max: 2.00
+    avg_response_time_seconds: 2.0
+    cache_hit_rate_min: 0.75
+    success_rate_min: 0.95
+
+# Communication & Formation
+communication:
+  knowledge_manager:
+    enabled: true
+    proactive_suggestions: true
+    max_suggestions_per_day: 5
+
+  gap_detection:
+    enabled: true
+    severity_threshold: "medium"
+
+  learning:
+    micro_lessons: true
+    interactive: true
+    track_progress: true
+
+# Optimisations critiques
+optimization:
+  # Partial Updates (PRIORITÉ #1)
+  partial_updates:
+    enabled: true
+    aggressive: true
+    diff_threshold: 0.3
+    methods:
+      - "git_diff_style"      # Utiliser format diff
+      - "json_patch"          # RFC 6902 JSON Patch
+      - "incremental_state"   # États incrémentaux
+      - "context_reuse"       # Réutilisation contexte
+
+    # Stratégies par type de contenu
+    strategies:
+      code:
+        method: "git_diff_style"
+        context_lines: 3
+
+      json:
+        method: "json_patch"
+
+      text:
+        method: "incremental_state"
+        chunk_size: 500
+
+      data:
+        method: "context_reuse"
+        reuse_percentage: 0.8
+
+  # Cache multi-niveaux
+  cache:
+    l1_memory:
+      enabled: true
+      max_size_mb: 100
+      ttl_minutes: 60
+
+    l2_semantic:
+      enabled: true
+      similarity_threshold: 0.92
+      max_results: 1
+
+    l3_templates:
+      enabled: true
+      pattern_matching: true
+
+  # Compression de contexte
+  compression:
+    enabled: true
+    target_reduction: 0.6
+    preserve_quality: true
+
+    techniques:
+      - "entity_extraction"
+      - "summary_hierarchy"
+      - "token_optimization"
+      - "redundancy_removal"
+
+  # Code-first approach
+  code_first:
+    enabled: true
+    deterministic_threshold: 0.9  # Si >90% déterministe, use code
+
+# Sécurité
+security:
+  sandbox:
+    enabled: true
+
+  permissions:
+    require_confirmation:
+      - "file_delete"
+      - "system_command"
+      - "network_request"
+      - "database_write"
+
+  rate_limiting:
+    enabled: true
+    max_requests_per_minute: 60
+
+  audit:
+    enabled: true
+    log_all_actions: true
+
+# Développement
+development:
+  mock_llm: false  # true pour tests sans coûts
+  test_mode: false
+  profiling: false
