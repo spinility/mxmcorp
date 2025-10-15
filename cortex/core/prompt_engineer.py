@@ -28,116 +28,39 @@ class PromptEngineer:
         """
         self.llm_client = llm_client
 
-    def detect_contradiction(
-        self,
-        user_request: str,
-        available_tools: List[StandardTool]
-    ) -> Optional[Dict[str, Any]]:
+    def detect_tool_creation_request(self, user_request: str) -> bool:
         """
-        Détecte si la requête contient une contradiction
+        Détecte si la requête demande de CRÉER un outil
+        (pas d'UTILISER un outil)
 
         Args:
             user_request: Requête utilisateur
-            available_tools: Outils disponibles
 
         Returns:
-            Dict avec contradiction détectée ou None
+            True si c'est une demande de création d'outil
         """
-        # Patterns de contradictions courantes
         create_patterns = [
             "implémente", "implemente", "crée", "cree", "ajoute", "créer", "creer",
-            "implement", "create", "add", "make", "build"
+            "implement", "create", "add", "make", "build", "develop", "code"
         ]
 
         tool_patterns = [
-            "tool", "outil", "fonction", "function", "command", "commande"
+            "tool", "outil", "fonction", "function", "command", "commande", "feature"
         ]
 
-        # Check si c'est une demande de création d'outil
-        is_tool_creation = (
-            any(pattern in user_request.lower() for pattern in create_patterns) and
-            any(pattern in user_request.lower() for pattern in tool_patterns)
-        )
-
-        if not is_tool_creation:
-            return None
-
-        # Chercher quel outil est demandé
-        # Méthode 1: Par nom d'outil
-        for tool in available_tools:
-            # Variations du nom (avec/sans underscore, etc.)
-            name_variations = [
-                tool.name,
-                tool.name.replace("_", " "),
-                tool.name.replace("_", "-"),
-                tool.name.replace("_", "")
-            ]
-
-            for variation in name_variations:
-                if variation.lower() in user_request.lower():
-                    # CONTRADICTION DÉTECTÉE!
-                    return {
-                        "type": "tool_already_exists",
-                        "tool_name": tool.name,
-                        "requested_variation": variation,
-                        "message": f"L'outil '{tool.name}' existe déjà dans le système!"
-                    }
-
-        # Méthode 2: Par mots-clés dans la description
-        # Mapper des mots-clés à des outils existants
-        keyword_mappings = {
-            "delete": ["delete_file"],
-            "suppr": ["delete_file"],
-            "efface": ["delete_file"],
-            "remove": ["delete_file"],
-            "create": ["create_file"],
-            "crée": ["create_file"],
-            "cree": ["create_file"],
-            "créer": ["create_file"],
-            "creer": ["create_file"],
-            "read": ["read_file"],
-            "lit": ["read_file"],
-            "lire": ["read_file"],
-            "append": ["append_to_file"],
-            "ajoute": ["append_to_file"],
-            "list": ["list_directory"],
-            "liste": ["list_directory"],
-            "exists": ["file_exists"],
-            "existe": ["file_exists"],
-            "weather": ["get_weather"],
-            "météo": ["get_weather"],
-            "meteo": ["get_weather"],
-            "search": ["web_search"],
-            "cherche": ["web_search"],
-            "fetch": ["web_fetch"],
-        }
-
-        # Vérifier si la requête contient des mots-clés d'action sur fichiers
         request_lower = user_request.lower()
 
-        for keyword, potential_tools in keyword_mappings.items():
-            if keyword in request_lower:
-                # Vérifier si l'outil correspondant existe
-                for tool in available_tools:
-                    if tool.name in potential_tools:
-                        # Vérifier que c'est bien une demande de création d'outil
-                        # (et pas juste utilisation de l'outil)
-                        if any(p in request_lower for p in ["fichier", "file", "dossier", "directory"]):
-                            return {
-                                "type": "tool_already_exists",
-                                "tool_name": tool.name,
-                                "requested_variation": keyword,
-                                "message": f"L'outil '{tool.name}' existe déjà dans le système!"
-                            }
+        # Doit contenir à la fois un verbe de création ET un mot "tool"
+        has_create = any(pattern in request_lower for pattern in create_patterns)
+        has_tool = any(pattern in request_lower for pattern in tool_patterns)
 
-        return None
+        return has_create and has_tool
 
     def build_agent_prompt(
         self,
         tier: ModelTier,
         user_request: str,
-        available_tools: List[StandardTool],
-        contradiction: Optional[Dict[str, Any]] = None
+        available_tools: List[StandardTool]
     ) -> str:
         """
         Construit un prompt optimisé selon le tier
@@ -146,7 +69,6 @@ class PromptEngineer:
             tier: Tier du modèle (nano/deepseek/claude)
             user_request: Requête utilisateur
             available_tools: Outils disponibles
-            contradiction: Contradiction détectée (optionnelle)
 
         Returns:
             System prompt optimisé
@@ -154,19 +76,16 @@ class PromptEngineer:
         # Générer la liste d'outils
         tools_list = self._format_tools_list(available_tools, tier)
 
-        # Si contradiction détectée, créer un prompt spécial
-        if contradiction:
-            return self._build_contradiction_prompt(
-                tier, user_request, available_tools, contradiction
-            )
+        # Détecter si c'est une demande de création d'outil
+        is_tool_creation = self.detect_tool_creation_request(user_request)
 
-        # Sinon, prompt normal selon le tier
+        # Prompt selon le tier
         if tier == ModelTier.NANO:
-            return self._build_nano_prompt(tools_list)
+            return self._build_nano_prompt(tools_list, is_tool_creation)
         elif tier == ModelTier.DEEPSEEK:
-            return self._build_deepseek_prompt(tools_list)
+            return self._build_deepseek_prompt(tools_list, is_tool_creation)
         else:  # Claude
-            return self._build_claude_prompt(tools_list)
+            return self._build_claude_prompt(tools_list, is_tool_creation)
 
     def _format_tools_list(
         self,
@@ -202,9 +121,10 @@ class PromptEngineer:
 
             return "\n".join(result)
 
-    def _build_nano_prompt(self, tools_list: str) -> str:
+    def _build_nano_prompt(self, tools_list: str, is_tool_creation: bool) -> str:
         """Prompt optimisé pour nano (court, direct)"""
-        return f"""Agent with tools. Use them directly.
+
+        base_prompt = f"""Agent with tools. Use them directly.
 
 TOOLS:
 {tools_list}
@@ -225,9 +145,21 @@ Example:
 ⚠️ Severity: LOW
 🔧 Actions: create_file()"""
 
-    def _build_deepseek_prompt(self, tools_list: str) -> str:
+        # Si c'est une demande de création d'outil, ajouter l'instruction de vérification
+        if is_tool_creation:
+            base_prompt += """
+
+⚠️ IMPORTANT: User asks to CREATE a tool.
+CHECK if tool already exists in list above!
+If exists: Say "Tool [name] already exists"
+If not: Say "Will request Tools Department" """
+
+        return base_prompt
+
+    def _build_deepseek_prompt(self, tools_list: str, is_tool_creation: bool) -> str:
         """Prompt optimisé pour deepseek (structuré, exemples)"""
-        return f"""Tu es Cortex, un agent avec des outils.
+
+        base_prompt = f"""Tu es Cortex, un agent avec des outils.
 
 OUTILS DISPONIBLES:
 {tools_list}
@@ -261,9 +193,32 @@ Réponse:
 ⚠️ **Gravité si erreur:** FAIBLE - Info non critique.
 🔧 **Actions:** Aucun - Outil "get_weather" requis."""
 
-    def _build_claude_prompt(self, tools_list: str) -> str:
+        # Instruction spéciale si demande de création d'outil
+        if is_tool_creation:
+            base_prompt += """
+
+⚠️ ATTENTION: L'utilisateur demande de CRÉER un outil.
+
+VÉRIFIE D'ABORD dans la liste d'outils ci-dessus si un outil similaire existe déjà!
+
+Si un outil existe qui fait la même chose:
+🎯 **Résultat:** L'outil [nom] existe déjà et fait cette action!
+💭 **Confiance:** HAUTE - Outil vérifié dans la liste.
+⚠️ **Gravité si erreur:** FAIBLE - Aucune erreur, juste une clarification.
+🔧 **Actions:** Aucune - L'outil est disponible.
+
+Si aucun outil similaire n'existe:
+🎯 **Résultat:** Outil non disponible. Je demande au Tools Department de le créer.
+💭 **Confiance:** MOYENNE - Tool peut être créé.
+⚠️ **Gravité si erreur:** FAIBLE - Demande de création.
+🔧 **Actions:** Demande de création d'outil au Tools Department."""
+
+        return base_prompt
+
+    def _build_claude_prompt(self, tools_list: str, is_tool_creation: bool) -> str:
         """Prompt optimisé pour claude (détaillé, raisonnement)"""
-        return f"""Tu es Cortex, un agent intelligent équipé d'outils pour accomplir des tâches.
+
+        base_prompt = f"""Tu es Cortex, un agent intelligent équipé d'outils pour accomplir des tâches.
 
 PHILOSOPHIE:
 - Privilégier l'action directe avec les outils disponibles
@@ -307,78 +262,38 @@ Réponse:
 ⚠️ **Gravité si erreur:** FAIBLE - Tâche non critique, alternatives manuelles disponibles.
 🔧 **Actions:** Aucun - Requête de création d'outil "translate_text(text, source_lang, target_lang)" envoyée au Tools Department."""
 
-    def _build_contradiction_prompt(
-        self,
-        tier: ModelTier,
-        user_request: str,
-        available_tools: List[StandardTool],
-        contradiction: Dict[str, Any]
-    ) -> str:
-        """
-        Construit un prompt spécial quand une contradiction est détectée
+        # Instruction spéciale si demande de création d'outil
+        if is_tool_creation:
+            base_prompt += """
 
-        Args:
-            tier: Tier du modèle
-            user_request: Requête utilisateur
-            available_tools: Outils disponibles
-            contradiction: Info sur la contradiction
+⚠️ ATTENTION CRITIQUE: L'utilisateur demande de CRÉER ou IMPLÉMENTER un outil.
 
-        Returns:
-            Prompt qui informe de la contradiction
-        """
-        tool_name = contradiction["tool_name"]
+AVANT DE RÉPONDRE, tu DOIS:
+1. Examiner attentivement la liste complète des outils disponibles ci-dessus
+2. Analyser sémantiquement si un outil existant fait déjà cette action
+3. Comparer la fonctionnalité demandée avec les descriptions des outils
 
-        # Trouver l'outil en question
-        tool = next((t for t in available_tools if t.name == tool_name), None)
+IMPORTANT: Ne te base PAS sur les noms d'outils uniquement!
+Analyse les DESCRIPTIONS pour détecter les fonctionnalités similaires.
 
-        if not tool:
-            return self.build_agent_prompt(tier, user_request, available_tools, None)
+Exemples:
+- "Implémente un outil pour effacer des fichiers" → delete_file EXISTE
+- "Crée une fonction pour lire des fichiers" → read_file EXISTE
+- "Ajoute un tool pour la météo" → get_weather EXISTE (si présent)
 
-        # Prompt court pour nano, détaillé pour les autres
-        if tier == ModelTier.NANO:
-            return f"""CONTRADICTION DETECTED!
+Si un outil similaire existe:
+🎯 **Résultat:** L'outil [nom] existe déjà dans le système! Il permet de [description courte]. Aucune implémentation nécessaire.
+💭 **Confiance:** HAUTE - Outil vérifié dans la liste des outils disponibles.
+⚠️ **Gravité si erreur:** FAIBLE - Aucune erreur, simple clarification sur l'existence de l'outil.
+🔧 **Actions:** Aucune - L'outil [nom] est déjà disponible et fonctionnel.
 
-User requested to create tool "{tool_name}"
-BUT this tool ALREADY EXISTS!
+Si AUCUN outil similaire n'existe:
+🎯 **Résultat:** Aucun outil ne correspond à cette fonctionnalité. Je demande au Tools Department de créer un nouvel outil "[nom_suggéré]".
+💭 **Confiance:** MOYENNE - Le Tools Department peut créer l'outil.
+⚠️ **Gravité si erreur:** FAIBLE - Demande de création d'outil.
+🔧 **Actions:** Demande de création envoyée au Tools Department avec spécifications."""
 
-Tool: {tool_name}
-Description: {tool.description}
-
-Response format:
-🎯 Result: Tool already exists!
-💭 Confidence: HIGH
-⚠️ Severity: LOW
-🔧 Actions: None needed"""
-
-        else:  # DeepSeek et Claude
-            return f"""⚠️ CONTRADICTION DÉTECTÉE
-
-La requête utilisateur demande de créer/implémenter l'outil "{tool_name}",
-MAIS cet outil EXISTE DÉJÀ dans le système!
-
-OUTIL EXISTANT:
-  Nom: {tool_name}
-  Description: {tool.description}
-  Catégorie: {tool.category}
-  Tags: {', '.join(tool.tags) if tool.tags else 'aucun'}
-
-INSTRUCTION:
-Réponds à l'utilisateur en l'informant que:
-1. L'outil "{tool_name}" existe déjà
-2. Il est pleinement fonctionnel
-3. Propose de l'utiliser directement si la requête peut être reformulée
-
-FORMAT DE RÉPONSE:
-
-🎯 **Résultat:** L'outil "{tool_name}" existe déjà dans le système! Aucune implémentation nécessaire.
-
-💭 **Confiance:** HAUTE - Outil vérifié et fonctionnel.
-
-⚠️ **Gravité si erreur:** FAIBLE - Aucune erreur, juste une clarification.
-
-🔧 **Actions:** Aucune - L'outil est déjà disponible pour utilisation.
-
-SUGGESTION: Propose à l'utilisateur d'utiliser l'outil directement en reformulant sa requête."""
+        return base_prompt
 
 
 def create_prompt_engineer(llm_client: LLMClient) -> PromptEngineer:

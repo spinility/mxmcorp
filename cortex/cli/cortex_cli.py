@@ -227,24 +227,12 @@ Total Cost: ${sum(self.costs.values()):.6f}
             print(f"  Using {self.ui.color(selection.model_name, Color.GREEN)} (${selection.estimated_cost:.6f}/1M tokens)")
             print()
 
-            # Step 2: Detect contradictions
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Analyzing request...")
-            contradiction = self.prompt_engineer.detect_contradiction(
-                description,
-                self.available_tools
-            )
-
-            if contradiction:
-                self.ui.warning(f"⚠️ {contradiction['message']}")
-                print()
-
-            # Step 3: Build optimized prompt
+            # Step 2: Build optimized prompt with dynamic tool context
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Building optimized prompt for {selection.tier.value}...")
             system_prompt = self.prompt_engineer.build_agent_prompt(
                 tier=selection.tier,
                 user_request=description,
-                available_tools=self.available_tools,
-                contradiction=contradiction
+                available_tools=self.available_tools
             )
 
             # Build messages
@@ -259,7 +247,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
             messages.append({"role": "user", "content": description})
             print()
 
-            # Step 4: Execute with tools
+            # Step 3: Execute with tools
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Executing with {len(self.available_tools)} tools available...")
             print()
 
