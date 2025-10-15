@@ -1,15 +1,15 @@
 """
-Tester Agent - Employé spécialisé dans la validation de code
+Tester Agent - Agent spécialisé dans la validation de code
 
-Utilise le tier NANO pour validation ultra-rapide et économique.
-Excellence dans la détection d'erreurs avec un prompt optimisé.
+ROLE: AGENT (Exécution) - Niveau 1 de la hiérarchie
+TIER: NANO pour validation ultra-rapide et économique
 
 Responsabilités:
 - Validation syntaxique (AST parsing)
 - Résolution des imports
 - Exécution des tests unitaires
 - Détection d'erreurs runtime
-- Recommandations d'escalation
+- Recommandations d'escalation vers EXPERT
 """
 
 import ast
@@ -24,6 +24,7 @@ from enum import Enum
 
 from cortex.core.llm_client import LLMClient
 from cortex.core.model_router import ModelTier
+from cortex.core.agent_hierarchy import ExecutionAgent, AgentRole, AgentResult, EscalationContext
 
 
 class TestStatus(Enum):
@@ -119,11 +120,12 @@ class ValidationReport:
         }
 
 
-class TesterAgent:
+class TesterAgent(ExecutionAgent):
     """
-    Agent spécialisé dans la validation de code
+    Tester Agent - Niveau AGENT (Exécution) dans la hiérarchie
 
-    Utilise NANO tier pour rapidité et économie
+    Hérite d'ExecutionAgent pour intégration dans le système hiérarchique.
+    Spécialisation: Validation et tests de code.
     """
 
     # Prompt ultra-optimisé pour nano
@@ -161,8 +163,90 @@ EFFICIENCY: Max 50 tokens response."""
         Args:
             llm_client: Client LLM pour analyse nano
         """
-        self.llm_client = llm_client
+        # Initialiser ExecutionAgent avec spécialisation "testing"
+        super().__init__(llm_client, specialization="testing")
         self.test_history: List[ValidationReport] = []
+
+    def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
+        """
+        Évalue si le TesterAgent peut gérer la requête
+
+        Override ExecutionAgent.can_handle() avec logique spécifique
+        """
+        # Patterns spécifiques aux tests
+        test_patterns = [
+            'test', 'validate', 'check', 'verify',
+            'syntax', 'import', 'pytest', 'unittest'
+        ]
+
+        request_lower = request.lower()
+        matches = sum(1 for pattern in test_patterns if pattern in request_lower)
+
+        # Base confidence from matches
+        confidence = min(matches / 2.0, 1.0)
+
+        # Boost if context contains filepaths
+        if context and 'filepaths' in context:
+            confidence = min(confidence + 0.2, 1.0)
+
+        return confidence
+
+    def execute(
+        self,
+        request: str,
+        context: Optional[Dict] = None,
+        escalation_context: Optional[EscalationContext] = None
+    ) -> AgentResult:
+        """
+        Exécute la validation de code
+
+        Override ExecutionAgent.execute() avec logique TesterAgent
+
+        Args:
+            request: Requête (peut contenir description de validation)
+            context: Dict avec 'filepaths' requis
+            escalation_context: Contexte si escalation
+
+        Returns:
+            AgentResult avec validation report
+        """
+        # Extraire filepaths du contexte
+        filepaths = context.get('filepaths', []) if context else []
+
+        if not filepaths:
+            return AgentResult(
+                success=False,
+                role=self.role,
+                tier=self.tier,
+                content=None,
+                cost=0.0,
+                confidence=0.0,
+                should_escalate=True,
+                escalation_reason="No filepaths provided for validation",
+                error="Missing filepaths in context"
+            )
+
+        # Exécuter validation
+        run_tests = context.get('run_tests', True) if context else True
+        test_timeout = context.get('test_timeout', 30) if context else 30
+
+        report = self.validate_code(filepaths, run_tests, test_timeout)
+
+        # Mapper ValidationReport → AgentResult
+        should_escalate = report.recommendation == "escalate_tier"
+
+        return AgentResult(
+            success=report.status == TestStatus.PASS,
+            role=self.role,
+            tier=self.tier,
+            content=report.to_dict(),
+            cost=0.0001,  # Nano cost estimate
+            confidence=report.confidence,
+            should_escalate=should_escalate,
+            escalation_reason=report.escalation_reason.value if report.escalation_reason else None,
+            error=None if report.status == TestStatus.PASS else f"{len(report.syntax_errors + report.import_errors + report.test_failures)} errors",
+            metadata={'report': report}
+        )
 
     def validate_code(
         self,
@@ -431,8 +515,8 @@ YOUR ANALYSIS:"""
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": prompt}],
                 tier=ModelTier.NANO,
-                max_tokens=100,
-                temperature=0.1
+                max_tokens=100
+                # Note: Nano model only supports temperature=1 (default)
             )
 
             result = json.loads(response.content.strip())

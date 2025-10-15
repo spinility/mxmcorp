@@ -1,5 +1,8 @@
 """
-Context Agent - Employé spécialisé dans la gestion du contexte applicatif
+Context Agent - Agent spécialisé dans la gestion du contexte applicatif
+
+ROLE: AGENT (Exécution) - Niveau 1 de la hiérarchie
+TIER: NANO pour décisions rapides sur le contexte
 
 Responsabilités:
 - Fusionner git diff avec contexte optimisé
@@ -12,10 +15,16 @@ from typing import Dict, Any, Optional
 from cortex.core.llm_client import LLMClient
 from cortex.core.context_manager import ContextManager, create_context_manager
 from cortex.core.model_router import ModelTier
+from cortex.core.agent_hierarchy import ExecutionAgent, AgentRole, AgentResult, EscalationContext
 
 
-class ContextAgent:
-    """Agent spécialisé dans la gestion intelligente du contexte"""
+class ContextAgent(ExecutionAgent):
+    """
+    Context Agent - Niveau AGENT (Exécution) dans la hiérarchie
+
+    Hérite d'ExecutionAgent pour intégration dans le système hiérarchique.
+    Spécialisation: Gestion du contexte applicatif.
+    """
 
     def __init__(self, llm_client: LLMClient):
         """
@@ -24,8 +33,75 @@ class ContextAgent:
         Args:
             llm_client: Client LLM pour les opérations
         """
-        self.llm_client = llm_client
+        # Initialiser ExecutionAgent avec spécialisation "context_management"
+        super().__init__(llm_client, specialization="context_management")
         self.context_manager = create_context_manager(llm_client)
+
+    def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
+        """
+        Évalue si le ContextAgent peut gérer la requête
+
+        Override ExecutionAgent.can_handle() avec logique spécifique
+        """
+        # Patterns spécifiques au contexte
+        context_patterns = [
+            'context', 'git diff', 'cache', 'embedding',
+            'prepare context', 'search context', 'optimize'
+        ]
+
+        request_lower = request.lower()
+        matches = sum(1 for pattern in context_patterns if pattern in request_lower)
+
+        # Base confidence from matches
+        confidence = min(matches / 2.0, 1.0)
+
+        # Boost if context contains target_tier (besoin d'optimisation)
+        if context and 'target_tier' in context:
+            confidence = min(confidence + 0.3, 1.0)
+
+        return confidence
+
+    def execute(
+        self,
+        request: str,
+        context: Optional[Dict] = None,
+        escalation_context: Optional[EscalationContext] = None
+    ) -> AgentResult:
+        """
+        Exécute la préparation de contexte
+
+        Override ExecutionAgent.execute() avec logique ContextAgent
+
+        Args:
+            request: Requête utilisateur
+            context: Dict avec 'target_tier' et optionnel 'max_tokens'
+            escalation_context: Contexte si escalation
+
+        Returns:
+            AgentResult avec contexte préparé
+        """
+        # Extraire paramètres du contexte
+        target_tier = context.get('target_tier', ModelTier.DEEPSEEK) if context else ModelTier.DEEPSEEK
+        max_tokens = context.get('max_tokens', 2000) if context else 2000
+
+        # Préparer le contexte
+        result = self.prepare_context_for_request(request, target_tier, max_tokens)
+
+        # Mapper résultat → AgentResult
+        context_needed = result['metadata']['context_needed']['needed']
+
+        return AgentResult(
+            success=True,
+            role=self.role,
+            tier=self.tier,
+            content=result,
+            cost=result['metadata']['total_cost'],
+            confidence=result['metadata']['context_needed']['confidence'],
+            should_escalate=False,  # ContextAgent ne requiert pas escalation
+            escalation_reason=None,
+            error=None,
+            metadata={'context_result': result}
+        )
 
     def prepare_context_for_request(
         self,
