@@ -358,6 +358,101 @@ def file_exists(path: str) -> Dict[str, Any]:
         }
 
 
+@tool(
+    name="delete_file",
+    description="Delete a file or directory. Be careful, this action is irreversible!",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path to the file or directory to delete"
+            },
+            "recursive": {
+                "type": "boolean",
+                "description": "If True, delete directories recursively. Required for non-empty directories. Default: False"
+            }
+        },
+        "required": ["path"]
+    },
+    category="filesystem",
+    tags=["file", "delete", "remove"]
+)
+def delete_file(path: str, recursive: bool = False) -> Dict[str, Any]:
+    """
+    Delete a file or directory
+
+    Args:
+        path: Path to delete
+        recursive: If True, delete directories recursively
+
+    Returns:
+        Dict with success status
+    """
+    try:
+        p = Path(path)
+
+        if not p.exists():
+            return {
+                "success": False,
+                "error": f"Path not found: {path}"
+            }
+
+        # Get info before deletion
+        is_dir = p.is_dir()
+        size = p.stat().st_size if p.is_file() else 0
+
+        if is_dir:
+            if recursive:
+                # Delete directory recursively
+                import shutil
+                shutil.rmtree(p)
+                return {
+                    "success": True,
+                    "data": {
+                        "path": str(p.absolute()),
+                        "type": "directory",
+                        "deleted_recursively": True
+                    },
+                    "message": f"Directory deleted recursively: {path}"
+                }
+            else:
+                # Try to delete empty directory
+                try:
+                    p.rmdir()
+                    return {
+                        "success": True,
+                        "data": {
+                            "path": str(p.absolute()),
+                            "type": "directory"
+                        },
+                        "message": f"Empty directory deleted: {path}"
+                    }
+                except OSError:
+                    return {
+                        "success": False,
+                        "error": f"Directory not empty: {path}. Use recursive=True to delete non-empty directories."
+                    }
+        else:
+            # Delete file
+            p.unlink()
+            return {
+                "success": True,
+                "data": {
+                    "path": str(p.absolute()),
+                    "type": "file",
+                    "size_bytes": size
+                },
+                "message": f"File deleted: {path} ({size} bytes)"
+            }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to delete: {str(e)}"
+        }
+
+
 def get_all_builtin_tools():
     """
     Get all built-in tools
@@ -370,7 +465,8 @@ def get_all_builtin_tools():
         read_file,
         append_to_file,
         list_directory,
-        file_exists
+        file_exists,
+        delete_file
     ]
 
 
