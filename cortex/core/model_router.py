@@ -20,9 +20,10 @@ from .config_loader import get_config
 
 class ModelTier(Enum):
     """Tiers de modèles disponibles"""
-    NANO = "nano"          # GPT-5-Nano
-    DEEPSEEK = "deepseek"  # DeepSeek V3.2
-    CLAUDE = "claude"      # Claude Sonnet 4.5
+    NANO = "nano"          # GPT-5-Nano (testing only)
+    DEEPSEEK = "deepseek"  # DeepSeek V3.2-Exp (Tier 1: rapide, économique)
+    GPT5 = "gpt5"          # GPT-5 (Tier 2: intelligent, équilibré)
+    CLAUDE = "claude"      # Claude Sonnet 4.5 (Tier 3: ultra-puissant)
 
 
 @dataclass
@@ -272,7 +273,8 @@ class ModelRouter:
         """Vérifie si un tier est suffisant pour une complexité donnée"""
         tier_max_complexity = {
             ModelTier.NANO: 3.0,
-            ModelTier.DEEPSEEK: 8.0,
+            ModelTier.DEEPSEEK: 6.0,
+            ModelTier.GPT5: 8.5,
             ModelTier.CLAUDE: 10.0
         }
 
