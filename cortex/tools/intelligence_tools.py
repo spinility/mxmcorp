@@ -16,13 +16,14 @@ from cortex.departments.intelligence import (
 )
 
 
-def scrape_xpath(url: str, xpath: str) -> Dict[str, Any]:
+def scrape_xpath(url: str, xpath: str, check_robots: bool = False) -> Dict[str, Any]:
     """
     Extraire du texte d'une page web via XPath
 
     Args:
         url: URL de la page web
         xpath: Expression XPath pour extraire le texte
+        check_robots: Vérifier robots.txt avant scraping (défaut: False pour compatibilité)
 
     Returns:
         Dict avec résultat du scraping
@@ -49,17 +50,35 @@ def scrape_xpath(url: str, xpath: str) -> Dict[str, Any]:
             enabled=True
         )
 
-        # Scraper - retourne un ScrapedData object
-        result = crawler.scrape(source)
+        # Scraper avec validation et robots.txt
+        if check_robots:
+            # Mode strict: valider avec robots.txt
+            result = crawler.scrape(source, validate_first=True)
+        else:
+            # Mode permissif: scraper directement sans validation robots.txt
+            validation = crawler.validate_xpath(source, check_robots=False)
+
+            if not validation.success:
+                return {
+                    "success": False,
+                    "error": validation.error,
+                    "url": url,
+                    "xpath": xpath,
+                    "message": f"XPath validation failed: {validation.error}"
+                }
+
+            # Scraper sans re-valider
+            result = crawler.scrape(source, validate_first=False)
 
         # ScrapedData contient toujours des données, vérifier validation
-        if result.validation_before_scrape.success:
+        if result.validation_before_scrape.success or len(result.data) > 0:
             return {
                 "success": True,
                 "data": result.data,
                 "count": len(result.data) if result.data else 0,
                 "url": url,
                 "xpath": xpath,
+                "xpath_version": crawler.xpath_version,
                 "message": f"Extracted {len(result.data)} elements successfully"
             }
         else:
@@ -194,7 +213,7 @@ def get_all_intelligence_tools() -> List[StandardTool]:
     return [
         StandardTool(
             name="scrape_xpath",
-            description="Extract text from a web page using XPath expression. Stealth crawler (undetectable).",
+            description="Extract text from a web page using XPath expression. Stealth crawler (undetectable). Supports XPath 2.0 with string-join().",
             parameters={
                 "type": "object",
                 "properties": {
@@ -204,7 +223,12 @@ def get_all_intelligence_tools() -> List[StandardTool]:
                     },
                     "xpath": {
                         "type": "string",
-                        "description": "The XPath expression to extract data (e.g., '//h1/text()' for all h1 text)"
+                        "description": "The XPath expression to extract data (e.g., '//h1/text()' for all h1 text, or 'string-join(//p//text(), \" \")' for XPath 2.0)"
+                    },
+                    "check_robots": {
+                        "type": "boolean",
+                        "description": "Check robots.txt before scraping (default: false). Set to true for strict compliance.",
+                        "default": False
                     }
                 },
                 "required": ["url", "xpath"]
