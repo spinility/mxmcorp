@@ -131,6 +131,14 @@ User: "Create file test.txt"
 ⚠️ Severity: LOW
 🔧 Actions: create_file()
 
+User: "Use scrape_xpath with url=https://example.com and xpath=//h1/text()"
+RESPONSE: Just call the tool, no text needed.
+🔧 Actions: scrape_xpath(url="https://example.com", xpath="//h1/text()")
+
+User: "Extract text from XPATH=/html/body/div[1] at URL=https://site.com"
+RESPONSE: Just call the tool, no text needed.
+🔧 Actions: scrape_xpath(url="https://site.com", xpath="/html/body/div[1]")
+
 User: "git push"
 🎯 Result: I don't have git tools currently.
 💭 Confidence: HIGH
