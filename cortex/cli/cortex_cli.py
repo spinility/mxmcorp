@@ -41,7 +41,7 @@ from cortex.tools.pip_tools import get_all_pip_tools
 from cortex.agents import create_tooler_agent, create_communications_agent, create_planner_agent
 
 # Cortex managers
-from cortex.core.todo_manager import create_todo_manager, TaskStatus
+from cortex.core.todo_manager_wrapper import create_todo_manager, TaskStatus  # Using TodoDB backend
 from cortex.core.conversation_manager import create_conversation_manager
 
 
@@ -203,6 +203,12 @@ class CortexCLI:
 
         elif cmd == "conversation-stats":
             self.cmd_conversation_stats()
+
+        elif cmd == "users":
+            self.cmd_list_users()
+
+        elif cmd == "whoami":
+            self.cmd_whoami()
 
         else:
             # Not a recognized command - treat as natural language task
@@ -761,6 +767,67 @@ Total Cost: ${sum(self.costs.values()):.6f}
             width=50,
             label=f"Section progress ({stats['current_section_tokens']}/{stats['section_threshold']})"
         ))
+
+    def cmd_list_users(self):
+        """List all users in TodoDB"""
+        self.ui.header("👥 TodoDB Users", level=2)
+
+        # Access auth manager through todo_manager
+        auth_manager = self.todo_manager.auth_manager
+        users = auth_manager.list_users()
+
+        if not users:
+            self.ui.info("No users found")
+            return
+
+        print(f"{self.ui.color('Total users:', Color.CYAN)} {len(users)}")
+        print()
+
+        for user in users:
+            role_color = Color.RED if user.role.value == 'admin' else (Color.GREEN if user.role.value == 'developer' else Color.YELLOW)
+            print(f"{self.ui.color('•', role_color)} {self.ui.color(user.username, Color.WHITE, bold=True)}")
+            print(f"  Role: {self.ui.color(user.role.value.upper(), role_color)}")
+            print(f"  ID: {user.id}")
+            print(f"  Created: {user.created_at[:10]}")
+            if user.last_login:
+                print(f"  Last login: {user.last_login[:19]}")
+            print()
+
+    def cmd_whoami(self):
+        """Show current user info"""
+        self.ui.header("👤 Current User", level=2)
+
+        # Access auth manager and token
+        auth_manager = self.todo_manager.auth_manager
+        token = self.todo_manager.token
+
+        # Verify token to get user info
+        result = auth_manager.verify_token(token)
+
+        if not result['success']:
+            self.ui.error(f"Token verification failed: {result['error']}")
+            return
+
+        role_color = Color.RED if result['role'] == 'admin' else (Color.GREEN if result['role'] == 'developer' else Color.YELLOW)
+
+        print(f"{self.ui.color('Username:', Color.CYAN)} {self.ui.color(result['username'], Color.WHITE, bold=True)}")
+        print(f"{self.ui.color('Role:', Color.CYAN)} {self.ui.color(result['role'].upper(), role_color, bold=True)}")
+        print(f"{self.ui.color('User ID:', Color.CYAN)} {result['user_id']}")
+        print()
+
+        # Show permissions based on role
+        print(f"{self.ui.color('Permissions:', Color.MAGENTA)}")
+        if result['role'] == 'admin':
+            print(f"  {self.ui.color('✓', Color.GREEN)} Full access to all tasks")
+            print(f"  {self.ui.color('✓', Color.GREEN)} Create/edit/delete any task")
+            print(f"  {self.ui.color('✓', Color.GREEN)} Manage users")
+        elif result['role'] == 'developer':
+            print(f"  {self.ui.color('✓', Color.GREEN)} Create and edit own tasks")
+            print(f"  {self.ui.color('✓', Color.GREEN)} View all tasks")
+            print(f"  {self.ui.color('✗', Color.RED)} Cannot edit other users' tasks")
+        else:  # viewer
+            print(f"  {self.ui.color('✓', Color.GREEN)} View all tasks")
+            print(f"  {self.ui.color('✗', Color.RED)} Cannot create or edit tasks")
 
 
 def main():
