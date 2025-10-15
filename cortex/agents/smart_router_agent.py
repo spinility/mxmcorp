@@ -31,28 +31,28 @@ class SmartRouterAgent:
         # Départements connus et leurs capacités
         self.departments = {
             "intelligence": {
-                "keywords": ["web", "scrape", "xpath", "url", "website", "html", "dom", "browser", "page"],
+                "keywords": ["web", "scrape", "xpath", "url", "website", "html", "dom", "browser", "page", "extract"],
                 "description": "Web scraping, XPath extraction, dynamic content",
                 "agents": ["StealthWebCrawler", "XPathSourceRegistry"],
-                "confidence_threshold": 0.7
+                "confidence_threshold": 0.1  # Bas seuil car keywords très spécifiques
             },
             "maintenance": {
                 "keywords": ["git", "diff", "commit", "branch", "repository", "roadmap", "context", "dependency"],
                 "description": "Git operations, roadmap management, context updates",
                 "agents": ["GitDiffProcessor", "RoadmapManager", "ContextUpdater"],
-                "confidence_threshold": 0.8
+                "confidence_threshold": 0.1  # Bas seuil car keywords très spécifiques
             },
             "optimization": {
                 "keywords": ["pattern", "learn", "improve", "optimize", "evolve", "analyze", "history"],
                 "description": "Pattern detection, auto-evolution, learning",
                 "agents": ["PatternDetector", "ToolEvolver", "AgentEvolver"],
-                "confidence_threshold": 0.7
+                "confidence_threshold": 0.1
             },
             "communication": {
                 "keywords": ["report", "alert", "notify", "ceo", "summary", "message"],
                 "description": "Reports, alerts, notifications",
                 "agents": ["CEOAgent", "AlertSystem"],
-                "confidence_threshold": 0.8
+                "confidence_threshold": 0.1
             }
         }
 
@@ -90,10 +90,11 @@ class SmartRouterAgent:
                 best_match = dept_name
 
         # Step 2: Si match clair → Router vers département
-        if best_match and best_score >= 0.3:  # Au moins 30% de keywords
+        # Seuil abaissé à 0.1 (10%) car même 1-2 keywords suffisent pour identifier le département
+        if best_match and best_score > 0:
             return {
                 "route_to": "department",
-                "confidence": best_score,
+                "confidence": min(best_score * 2, 1.0),  # Boost confidence
                 "department": best_match,
                 "agent_suggestion": self.departments[best_match]["agents"][0],
                 "reason": f"Detected {best_match} department keywords (score: {best_score:.2f})"
