@@ -386,6 +386,52 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 # Check if TOOLER is needed
                 if "TOOLER_NEEDED:" in response.content:
                     self._handle_tooler_request(response.content, description)
+            elif response.tool_calls and len(response.tool_calls) > 0:
+                # Si pas de contenu mais des tool calls, afficher les résultats des tools
+                self.ui.success("✓ Tool execution completed!")
+                print()
+                print(self.ui.color("Tool Results:", Color.CYAN, bold=True))
+                print()
+
+                for i, tc in enumerate(response.tool_calls, 1):
+                    tool_name = tc.get('name', 'unknown')
+                    tool_result = tc.get('result', {})
+
+                    print(f"{i}. {self.ui.color(tool_name, Color.YELLOW, bold=True)}")
+
+                    if isinstance(tool_result, dict):
+                        # Afficher résultat structuré
+                        success = tool_result.get('success', False)
+                        message = tool_result.get('message', '')
+
+                        status_icon = "✓" if success else "✗"
+                        status_color = Color.GREEN if success else Color.RED
+
+                        print(f"   {self.ui.color(status_icon, status_color)} Status: {self.ui.color('SUCCESS' if success else 'FAILED', status_color)}")
+
+                        if message:
+                            print(f"   Message: {message}")
+
+                        # Afficher data si présent
+                        if 'data' in tool_result and tool_result['data']:
+                            data = tool_result['data']
+                            if isinstance(data, list):
+                                print(f"   Data ({len(data)} items):")
+                                for j, item in enumerate(data[:5], 1):  # Max 5 items
+                                    print(f"     {j}. {str(item)[:100]}")
+                                if len(data) > 5:
+                                    print(f"     ... and {len(data) - 5} more items")
+                            else:
+                                print(f"   Data: {str(data)[:200]}")
+
+                        # Afficher error si présent
+                        if 'error' in tool_result and tool_result['error']:
+                            print(f"   {self.ui.color('Error:', Color.RED)} {tool_result['error']}")
+                    else:
+                        # Résultat non structuré
+                        print(f"   Result: {str(tool_result)[:200]}")
+
+                    print()
             else:
                 # Fallback: générer une réponse basique
                 self.ui.warning("⚠️ LLM returned empty response - generating fallback")
