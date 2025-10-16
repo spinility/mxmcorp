@@ -31,7 +31,7 @@ def scrape_xpath(url: str, xpath: str, check_robots: bool = False) -> Dict[str, 
     try:
         from datetime import datetime
 
-        # Créer un crawler
+        # Utiliser StealthWebCrawler (requests+lxml)
         crawler = StealthWebCrawler()
 
         # Créer une source temporaire avec TOUS les champs requis
@@ -78,7 +78,6 @@ def scrape_xpath(url: str, xpath: str, check_robots: bool = False) -> Dict[str, 
                 "count": len(result.data) if result.data else 0,
                 "url": url,
                 "xpath": xpath,
-                "xpath_version": crawler.xpath_version,
                 "message": f"Extracted {len(result.data)} elements successfully"
             }
         else:

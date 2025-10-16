@@ -48,7 +48,7 @@ class ToolExecutor:
         self,
         messages: List[Dict[str, str]],
         tier: ModelTier = ModelTier.DEEPSEEK,
-        max_tokens: int = 2048,
+        max_tokens: Optional[int] = None,
         temperature: float = 1.0,
         tools: Optional[List[StandardTool]] = None,
         verbose: bool = False
@@ -59,7 +59,7 @@ class ToolExecutor:
         Args:
             messages: Messages de conversation
             tier: Tier du modèle LLM
-            max_tokens: Tokens max
+            max_tokens: Tokens max (si None, utilise les specs du modèle depuis models.yaml)
             temperature: Température
             tools: Tools à utiliser (si None, utilise tous les tools enregistrés)
             verbose: Afficher les étapes intermédiaires
@@ -139,7 +139,7 @@ class ToolExecutor:
                 # Format OpenAI (Nano et DeepSeek)
                 conversation_messages.append({
                     "role": "assistant",
-                    "content": None,
+                    "content": response.content if response.content else "",  # String vide au lieu de None
                     "tool_calls": [{
                         "id": tc.id,
                         "type": "function",

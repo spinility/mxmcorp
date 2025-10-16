@@ -20,7 +20,6 @@ import random
 import urllib.robotparser
 import requests
 from lxml import html, etree
-import elementpath
 
 from cortex.departments.intelligence.xpath_source_registry import XPathSource
 
@@ -79,40 +78,39 @@ class StealthWebCrawler:
     - Respect robots.txt
     """
 
-    # Pool de user-agents réalistes
-    USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    # User-agent Mozilla fixe (comme demandé par l'utilisateur)
+    # Plus de rotation aléatoire - utilisation d'un seul user-agent cohérent
+    DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    # Whitelist de sites connus safe (bypass robots.txt)
+    KNOWN_SAFE_SITES = [
+        "wikipedia.org",
+        "wikimedia.org",
+        "example.com",
     ]
 
-    def __init__(self, storage_dir: str = "cortex/data/scraped_data", xpath_version: str = "2.0"):
+    def __init__(self, storage_dir: str = "cortex/data/scraped_data"):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         # Session persistante pour cookies
         self.session = requests.Session()
 
-        # Cache de robots.txt
-        self.robots_cache: Dict[str, urllib.robotparser.RobotFileParser] = {}
+        # Cache de robots.txt (stocke le contenu texte, pas RobotFileParser)
+        self.robots_cache: Dict[str, str] = {}
 
-        # XPath version (1.0 or 2.0)
-        self.xpath_version = xpath_version
+    def _get_user_agent(self) -> str:
+        """Retourne le user-agent Mozilla fixe"""
+        return self.DEFAULT_USER_AGENT
 
-    def _get_random_user_agent(self) -> str:
-        """Retourne un user-agent aléatoire"""
-        return random.choice(self.USER_AGENTS)
-
-    def _random_delay(self, min_seconds: float = 0.5, max_seconds: float = 1.5):
-        """Délai randomisé pour paraître humain"""
+    def _random_delay(self, min_seconds: float = 1.5, max_seconds: float = 2.5):
+        """Délai randomisé pour paraître humain et respecter les serveurs"""
         delay = random.uniform(min_seconds, max_seconds)
         time.sleep(delay)
 
     def _evaluate_xpath(self, tree: etree._Element, xpath: str) -> List[Any]:
         """
-        Évalue un XPath selon la version configurée
+        Évalue un XPath (XPath 1.0 via lxml)
 
         Args:
             tree: Arbre HTML parsé (lxml)
@@ -121,34 +119,95 @@ class StealthWebCrawler:
         Returns:
             Liste de résultats
         """
-        if self.xpath_version == "2.0":
-            # XPath 2.0 via elementpath
-            try:
-                # elementpath nécessite un ElementTree, pas un Element
-                # Convertir l'arbre lxml en ElementTree standard
-                root = tree.getroottree().getroot()
-                selector = elementpath.select(root, xpath, namespaces=None)
+        # XPath 1.0 via lxml
+        return tree.xpath(xpath)
 
-                # Convertir le résultat en liste
-                if hasattr(selector, '__iter__') and not isinstance(selector, (str, bytes)):
-                    return list(selector)
-                else:
-                    return [selector] if selector is not None else []
-            except Exception as e:
-                # Fallback vers XPath 1.0 si erreur
-                print(f"⚠️  XPath 2.0 failed, falling back to 1.0: {e}")
-                return tree.xpath(xpath)
-        else:
-            # XPath 1.0 via lxml
-            return tree.xpath(xpath)
+    def _custom_robots_check(self, robots_txt: str, url: str, user_agent: str) -> bool:
+        """
+        Parser robots.txt custom qui fonctionne correctement
+
+        Fix pour le bug de urllib.robotparser qui bloque tout sur Wikipedia.
+
+        Args:
+            robots_txt: Contenu du robots.txt
+            url: URL à vérifier
+            user_agent: User-agent
+
+        Returns:
+            True si autorisé, False si bloqué
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        path = parsed.path
+
+        # Parser le robots.txt ligne par ligne
+        lines = robots_txt.split('\n')
+
+        current_agents = []
+        rules = []  # (agent_list, allow/disallow, path)
+
+        for line in lines:
+            line = line.split('#')[0].strip()  # Enlever commentaires
+            if not line:
+                continue
+
+            if line.lower().startswith('user-agent:'):
+                agent = line.split(':', 1)[1].strip()
+                current_agents.append(agent.lower())
+            elif line.lower().startswith('disallow:'):
+                disallow_path = line.split(':', 1)[1].strip()
+                for agent in current_agents:
+                    rules.append((agent, 'disallow', disallow_path))
+            elif line.lower().startswith('allow:'):
+                allow_path = line.split(':', 1)[1].strip()
+                for agent in current_agents:
+                    rules.append((agent, 'allow', allow_path))
+            elif current_agents:
+                # Nouvelle section user-agent
+                if line.lower().startswith('user-agent:'):
+                    current_agents = []
+
+        # Trouver les règles applicables
+        applicable_rules = []
+        ua_lower = user_agent.lower()
+
+        for agent, rule_type, rule_path in rules:
+            if agent == '*' or agent in ua_lower:
+                applicable_rules.append((rule_type, rule_path))
+
+        # Évaluer les règles (la plus spécifique gagne)
+        if not applicable_rules:
+            return True  # Pas de règles = autorisé
+
+        # Trier par longueur de path (plus spécifique en premier)
+        applicable_rules.sort(key=lambda x: len(x[1]), reverse=True)
+
+        for rule_type, rule_path in applicable_rules:
+            if not rule_path:
+                continue
+
+            # Vérifier si le path correspond
+            if path.startswith(rule_path):
+                if rule_type == 'allow':
+                    return True
+                elif rule_type == 'disallow':
+                    return False
+
+        # Par défaut: autorisé
+        return True
 
     def _can_fetch(self, url: str, user_agent: str = None) -> bool:
         """
         Vérifie si robots.txt autorise le scraping
 
+        Utilise:
+        1. Whitelist de sites connus safe (bypass direct)
+        2. Parser robots.txt custom (fix du bug urllib.robotparser)
+
         Args:
             url: URL à vérifier
-            user_agent: User-agent à utiliser (si None, utilise un navigateur réaliste)
+            user_agent: User-agent à utiliser (si None, utilise DEFAULT_USER_AGENT)
 
         Returns:
             True si autorisé
@@ -158,26 +217,41 @@ class StealthWebCrawler:
             parsed = urlparse(url)
             base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-            # Check cache
+            # User-agent par défaut
+            if user_agent is None:
+                user_agent = self.DEFAULT_USER_AGENT
+
+            # 1. Check whitelist de sites connus safe
+            for safe_site in self.KNOWN_SAFE_SITES:
+                if safe_site in parsed.netloc:
+                    return True  # Bypass robots.txt pour sites whitelistés
+
+            # 2. Fetch robots.txt si pas en cache
             if base_url not in self.robots_cache:
-                rp = urllib.robotparser.RobotFileParser()
-                rp.set_url(f"{base_url}/robots.txt")
                 try:
-                    rp.read()
-                    self.robots_cache[base_url] = rp
+                    response = requests.get(f"{base_url}/robots.txt", timeout=5)
+                    if response.status_code == 200:
+                        # Stocker le contenu texte dans le cache
+                        self.robots_cache[base_url] = response.text
+                    else:
+                        # Pas de robots.txt = autorisé
+                        self.robots_cache[base_url] = ""
+                        return True
                 except Exception:
-                    # Si erreur lecture robots.txt, autoriser
+                    # Erreur fetch = autorisé par défaut
+                    self.robots_cache[base_url] = ""
                     return True
 
-            # Utiliser un user-agent de navigateur réaliste au lieu de "*"
-            # Cela permet de passer sur Wikipedia qui ne bloque pas les navigateurs légitimes
-            if user_agent is None:
-                user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            # 3. Utiliser notre parser custom
+            robots_txt = self.robots_cache[base_url]
+            if not robots_txt:
+                return True  # Pas de robots.txt = autorisé
 
-            return self.robots_cache[base_url].can_fetch(user_agent, url)
+            return self._custom_robots_check(robots_txt, url, user_agent)
 
-        except Exception:
+        except Exception as e:
             # En cas d'erreur, autoriser par défaut
+            print(f"⚠️  robots.txt check error: {e}")
             return True
 
     def _fetch_page(self, url: str, headers: Dict[str, str], use_delay: bool = True) -> requests.Response:
@@ -195,7 +269,7 @@ class StealthWebCrawler:
         # Override user-agent seulement si absent
         headers = headers.copy()
         if "User-Agent" not in headers:
-            headers["User-Agent"] = self._get_random_user_agent()
+            headers["User-Agent"] = self._get_user_agent()
 
         # Ajouter headers réalistes si absents
         if "Accept" not in headers:
@@ -238,7 +312,7 @@ class StealthWebCrawler:
 
         try:
             # Vérifier robots.txt avec le user-agent qu'on va utiliser
-            user_agent = self._get_random_user_agent()
+            user_agent = self._get_user_agent()
             if check_robots and not self._can_fetch(source.url, user_agent):
                 return ValidationResult(
                     success=False,

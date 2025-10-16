@@ -129,7 +129,7 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         tier: ModelTier,
-        max_tokens: int = 2048,
+        max_tokens: Optional[int] = None,
         temperature: float = 0.7,
         tools: Optional[List] = None,
         tool_choice: str = "auto",
@@ -142,7 +142,7 @@ class LLMClient:
         Args:
             messages: Liste de messages au format [{"role": "user", "content": "..."}]
             tier: Tier du modèle (NANO, DEEPSEEK, CLAUDE)
-            max_tokens: Tokens maximum de sortie
+            max_tokens: Tokens maximum de sortie (si None, utilise la valeur du modèle dans models.yaml)
             temperature: Température (0-1)
             tools: Liste d'outils StandardTool disponibles pour le LLM
             tool_choice: "auto", "none", ou nom spécifique d'outil
@@ -154,6 +154,20 @@ class LLMClient:
         """
         # Clean messages to prevent UTF-8 encoding errors
         messages = self._clean_messages(messages)
+
+        # Si max_tokens n'est pas spécifié, utiliser la valeur du modèle
+        if max_tokens is None:
+            model_info = self._get_model_info(tier)
+            tier_key = tier.value.lower()
+            if tier_key == "nano":
+                tier_key = "nano"
+            elif tier_key == "deepseek":
+                tier_key = "deepseek"
+            elif tier_key == "claude":
+                tier_key = "claude"
+
+            model_config = self.models_config.get(tier_key, {})
+            max_tokens = model_config.get("max_tokens", 8192)  # Fallback raisonnable
 
         # Afficher infos AVANT l'appel si verbose
         if verbose:

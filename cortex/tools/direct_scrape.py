@@ -63,105 +63,161 @@ from cortex.departments.intelligence import StealthWebCrawler, XPathSource
 from datetime import datetime
 import json
 
+# Scrapy import (optionnel)
+try:
+    from cortex.departments.intelligence.scrapy_web_crawler import ScrapyWebCrawler
+    SCRAPY_AVAILABLE = True
+except ImportError:
+    SCRAPY_AVAILABLE = False
+
 
 def direct_scrape(
     url: str,
     xpath: str,
-    xpath_version: str = "2.0",
     output_format: str = "json",
-    check_robots: bool = False
+    check_robots: bool = False,
+    use_scrapy: bool = True  # Utiliser Scrapy par défaut si disponible
 ) -> Dict[str, Any]:
     """
     Extraction XPath directe sans LLM
 
     Args:
         url: URL de la page web
-        xpath: Expression XPath (1.0 ou 2.0)
-        xpath_version: Version XPath à utiliser ("1.0" ou "2.0")
+        xpath: Expression XPath (Scrapy natif = XPath 1.0)
         output_format: Format de sortie ("json", "text", "list")
         check_robots: Vérifier robots.txt (default: False)
+        use_scrapy: Utiliser Scrapy si disponible (default: True)
 
     Returns:
         Dict avec résultats de l'extraction
     """
     try:
-        # Créer crawler avec version XPath spécifiée
-        crawler = StealthWebCrawler(xpath_version=xpath_version)
-
-        # Créer source temporaire
-        source = XPathSource(
-            id=f"direct_{hash(url)}_{hash(xpath)}",
-            name="Direct Scrape",
-            url=url,
-            xpath=xpath,
-            description=f"Direct extraction with XPath {xpath_version}",
-            category="direct",
-            refresh_interval_hours=0,
-            created_at=datetime.now(),
-            last_validated=None,
-            validation_status="pending",
-            last_error=None,
-            enabled=True
-        )
-
-        # Valider sans robots.txt si check_robots=False
-        if not check_robots:
-            validation = crawler.validate_xpath(source, check_robots=False)
-            if not validation.success:
-                raise ValueError(f"XPath validation failed: {validation.error}")
-            result = crawler.scrape(source, validate_first=False)
+        # Choisir le crawler
+        if use_scrapy and SCRAPY_AVAILABLE:
+            # Mode Scrapy (recommandé)
+            return _direct_scrape_scrapy(url, xpath, output_format, check_robots)
         else:
-            # Mode strict avec robots.txt
-            result = crawler.scrape(source, validate_first=True)
-
-        # Formater selon output_format
-        if output_format == "text":
-            # Joindre avec newlines
-            formatted_data = "\n".join(result.data)
-        elif output_format == "list":
-            # Liste brute
-            formatted_data = result.data
-        else:  # json
-            # Données structurées avec métadonnées
-            formatted_data = {
-                "items": result.data,
-                "metadata": result.metadata
-            }
-
-        return {
-            "success": True,
-            "xpath_version": xpath_version,
-            "url": url,
-            "xpath": xpath,
-            "count": len(result.data),
-            "data": formatted_data,
-            "scrape_id": result.scrape_id,
-            "scraped_at": result.scraped_at.isoformat(),
-            "response_time_ms": result.metadata.get("response_time_ms"),
-            "message": f"Extracted {len(result.data)} elements using XPath {xpath_version}"
-        }
+            # Fallback: requests + lxml
+            return _direct_scrape_requests(url, xpath, output_format, check_robots)
 
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "xpath_version": xpath_version,
             "url": url,
             "xpath": xpath,
             "message": f"Direct scrape failed: {str(e)}"
         }
 
 
+def _direct_scrape_scrapy(
+    url: str,
+    xpath: str,
+    output_format: str,
+    check_robots: bool
+) -> Dict[str, Any]:
+    """Scraping avec Scrapy (recommandé)"""
+    crawler = ScrapyWebCrawler()
+
+    result = crawler.scrape_xpath(url, xpath, check_robots)
+
+    # Formater selon output_format
+    if output_format == "text":
+        formatted_data = "\n".join(result.data)
+    elif output_format == "list":
+        formatted_data = result.data
+    else:  # json
+        formatted_data = {
+            "items": result.data,
+            "metadata": {
+                "response_time_ms": result.response_time_ms,
+                "status_code": result.status_code,
+                "elements_count": result.elements_count
+            }
+        }
+
+    return {
+        "success": result.success,
+        "url": result.url,
+        "xpath": result.xpath,
+        "count": result.elements_count,
+        "data": formatted_data,
+        "scrape_id": f"scrapy_{hash(url)}_{datetime.now().timestamp()}",
+        "scraped_at": datetime.now().isoformat(),
+        "response_time_ms": result.response_time_ms,
+        "engine": "scrapy",
+        "message": f"Extracted {result.elements_count} elements using Scrapy (XPath 1.0 natif)"
+    }
+
+
+def _direct_scrape_requests(
+    url: str,
+    xpath: str,
+    output_format: str,
+    check_robots: bool
+) -> Dict[str, Any]:
+    """Scraping avec requests + lxml (fallback)"""
+    crawler = StealthWebCrawler()
+
+    # Créer source temporaire
+    source = XPathSource(
+        id=f"direct_{hash(url)}_{hash(xpath)}",
+        name="Direct Scrape",
+        url=url,
+        xpath=xpath,
+        description=f"Direct extraction with XPath {xpath_version}",
+        category="direct",
+        refresh_interval_hours=0,
+        created_at=datetime.now(),
+        last_validated=None,
+        validation_status="pending",
+        last_error=None,
+        enabled=True
+    )
+
+    # Valider sans robots.txt si check_robots=False
+    if not check_robots:
+        validation = crawler.validate_xpath(source, check_robots=False)
+        if not validation.success:
+            raise ValueError(f"XPath validation failed: {validation.error}")
+        result = crawler.scrape(source, validate_first=False)
+    else:
+        # Mode strict avec robots.txt
+        result = crawler.scrape(source, validate_first=True)
+
+    # Formater selon output_format
+    if output_format == "text":
+        formatted_data = "\n".join(result.data)
+    elif output_format == "list":
+        formatted_data = result.data
+    else:  # json
+        formatted_data = {
+            "items": result.data,
+            "metadata": result.metadata
+        }
+
+    return {
+        "success": True,
+        "url": url,
+        "xpath": xpath,
+        "count": len(result.data),
+        "data": formatted_data,
+        "scrape_id": result.scrape_id,
+        "scraped_at": result.scraped_at.isoformat(),
+        "response_time_ms": result.metadata.get("response_time_ms"),
+        "engine": "requests+lxml",
+        "message": f"Extracted {len(result.data)} elements using requests+lxml (fallback)"
+    }
+
+
 def batch_scrape(
-    sources: List[Dict[str, str]],
-    xpath_version: str = "2.0"
+    sources: List[Dict[str, str]]
 ) -> List[Dict[str, Any]]:
     """
     Extraction batch de plusieurs sources
 
     Args:
         sources: Liste de dicts avec {url, xpath, name (optional)}
-        xpath_version: Version XPath
 
     Returns:
         Liste de résultats
@@ -175,7 +231,7 @@ def batch_scrape(
 
         print(f"[{i}/{len(sources)}] Scraping {name}...")
 
-        result = direct_scrape(url, xpath, xpath_version, output_format="json")
+        result = direct_scrape(url, xpath, output_format="json")
         result["source_name"] = name
 
         results.append(result)
@@ -194,16 +250,10 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Direct XPath scraping without LLM"
+        description="Direct XPath scraping without LLM - Uses Scrapy (XPath 1.0 natif)"
     )
     parser.add_argument("url", help="URL to scrape")
-    parser.add_argument("xpath", help="XPath expression")
-    parser.add_argument(
-        "--xpath-version",
-        choices=["1.0", "2.0"],
-        default="2.0",
-        help="XPath version to use"
-    )
+    parser.add_argument("xpath", help="XPath expression (XPath 1.0)")
     parser.add_argument(
         "--format",
         choices=["json", "text", "list"],
@@ -227,7 +277,6 @@ if __name__ == "__main__":
     result = direct_scrape(
         url=args.url,
         xpath=args.xpath,
-        xpath_version=args.xpath_version,
         output_format=args.format,
         check_robots=args.check_robots  # Default: False (permissive mode)
     )

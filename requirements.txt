@@ -4,7 +4,10 @@
 # LLM APIs
 openai>=1.12.0
 anthropic>=0.18.0
-requests>=2.31.0
+
+# Web Scraping
+lxml>=5.1.0  # Parser XML/HTML rapide pour XPath
+requests>=2.31.0  # HTTP requests
 
 # Async & Performance
 asyncio>=3.4.3

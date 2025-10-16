@@ -362,7 +362,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 messages=messages,
                 tier=selection.tier,
                 tools=self.available_tools,
-                max_tokens=2048,
+                max_tokens=None,  # Utilise les specs du modèle (128,000 pour nano)
                 temperature=1.0,
                 verbose=True  # Activer verbose pour voir les étapes
             )
