@@ -393,6 +393,257 @@ class QualityControlAgent(DecisionAgent):
                 'confidence': 0.0
             }
 
+    def analyze_agent_logs(self, max_lines: int = 500) -> Dict[str, Any]:
+        """
+        Analyse les logs de tous les agents avec le LLM (DeepSeek → Claude si confiance basse)
+
+        Args:
+            max_lines: Nombre maximum de lignes de logs à analyser
+
+        Returns:
+            Dict avec analyse détaillée et score qualité
+        """
+        try:
+            print(f"\n{'='*70}")
+            print("🔍 QUALITY CONTROL - Agent Logs Analysis (LLM-powered)")
+            print(f"{'='*70}\n")
+
+            # Load logs from different sources
+            print("1. Loading agent logs...")
+            logs_data = self._load_agent_logs(max_lines)
+
+            if not logs_data['logs']:
+                return {
+                    'success': False,
+                    'action': 'analyze_logs',
+                    'error': 'No logs found to analyze',
+                    'cost': 0.0,
+                    'confidence': 0.0
+                }
+
+            print(f"   ✓ Loaded {logs_data['total_lines']} lines from {len(logs_data['sources'])} sources")
+            print()
+
+            # Step 1: Analyze with DeepSeek
+            print("2. Analyzing logs with DeepSeek...")
+            initial_tier = ModelTier.DEEPSEEK
+            initial_analysis = self._llm_analyze_logs(logs_data, initial_tier)
+
+            print(f"   Model: {initial_analysis['model']}")
+            print(f"   Confidence: {initial_analysis['confidence']:.2f}")
+            print(f"   Cost: ${initial_analysis['cost']:.6f}")
+            print()
+
+            # Step 2: Check if escalation needed
+            if initial_analysis['confidence'] < 0.7:
+                print(f"   ⚠️  Low confidence ({initial_analysis['confidence']:.2f}) - Escalating to Claude...")
+                print()
+
+                print("3. Re-analyzing with Claude (higher tier)...")
+                escalated_tier = ModelTier.CLAUDE
+                escalated_analysis = self._llm_analyze_logs(logs_data, escalated_tier)
+
+                print(f"   Model: {escalated_analysis['model']}")
+                print(f"   Confidence: {escalated_analysis['confidence']:.2f}")
+                print(f"   Cost: ${escalated_analysis['cost']:.6f}")
+                print()
+
+                # Use escalated analysis
+                final_analysis = escalated_analysis
+                total_cost = initial_analysis['cost'] + escalated_analysis['cost']
+                escalated = True
+            else:
+                print(f"   ✓ Confidence sufficient - using DeepSeek analysis")
+                print()
+                final_analysis = initial_analysis
+                total_cost = initial_analysis['cost']
+                escalated = False
+
+            # Display results
+            print(f"{'─'*70}")
+            print(f"FINAL QUALITY ASSESSMENT")
+            print(f"{'─'*70}\n")
+            print(f"Overall Quality Score: {final_analysis['quality_score']}/100")
+            print(f"Grade: {self._get_grade(final_analysis['quality_score'])}")
+            print(f"Confidence: {final_analysis['confidence']:.0%}")
+            print()
+
+            print("Agent Performance:")
+            for agent_score in final_analysis['agent_scores']:
+                print(f"  • {agent_score['agent']}: {agent_score['score']}/100 - {agent_score['assessment']}")
+            print()
+
+            print("Key Issues Identified:")
+            for i, issue in enumerate(final_analysis['issues'][:5], 1):
+                print(f"  {i}. [{issue['severity'].upper()}] {issue['description']}")
+            print()
+
+            print("Recommendations:")
+            for i, rec in enumerate(final_analysis['recommendations'][:5], 1):
+                print(f"  {i}. {rec}")
+            print()
+
+            return {
+                'success': True,
+                'action': 'analyze_logs',
+                'quality_score': final_analysis['quality_score'],
+                'grade': self._get_grade(final_analysis['quality_score']),
+                'confidence': final_analysis['confidence'],
+                'agent_scores': final_analysis['agent_scores'],
+                'issues': final_analysis['issues'],
+                'recommendations': final_analysis['recommendations'],
+                'escalated': escalated,
+                'models_used': [initial_analysis['model']] + ([escalated_analysis['model']] if escalated else []),
+                'total_cost': total_cost,
+                'logs_analyzed': logs_data['total_lines'],
+                'timestamp': datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'action': 'analyze_logs',
+                'error': f"Log analysis failed: {str(e)}",
+                'cost': 0.0,
+                'confidence': 0.0
+            }
+
+    def _load_agent_logs(self, max_lines: int) -> Dict[str, Any]:
+        """
+        Charge les logs de tous les agents
+
+        Args:
+            max_lines: Maximum de lignes à charger
+
+        Returns:
+            Dict avec logs et métadonnées
+        """
+        logs = []
+        sources = []
+
+        # 1. Load from cortex logs directory
+        logs_dir = Path("cortex/logs")
+        if logs_dir.exists():
+            for log_file in sorted(logs_dir.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True):
+                try:
+                    with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.readlines()
+                        logs.extend(content[-max_lines//2:])  # Take recent lines
+                        sources.append(str(log_file))
+                        if len(logs) >= max_lines:
+                            break
+                except Exception as e:
+                    print(f"   Warning: Could not read {log_file}: {e}")
+
+        # 2. Load conversation history as proxy for agent interactions
+        conv_history_file = Path("cortex/data/conversation_history.json")
+        if conv_history_file.exists() and len(logs) < max_lines:
+            try:
+                with open(conv_history_file, 'r') as f:
+                    conv_data = json.load(f)
+                    # Convert to log-like format
+                    for entry in conv_data[-50:]:  # Last 50 conversations
+                        log_entry = f"[{entry.get('timestamp', 'N/A')}] {entry.get('role', 'unknown')}: {entry.get('content', '')[:200]}\n"
+                        logs.append(log_entry)
+                    sources.append(str(conv_history_file))
+            except Exception as e:
+                print(f"   Warning: Could not read conversation history: {e}")
+
+        # 3. Load quality history
+        quality_file = Path("cortex/data/quality_history.json")
+        if quality_file.exists() and len(logs) < max_lines:
+            try:
+                with open(quality_file, 'r') as f:
+                    quality_data = json.load(f)
+                    for entry in quality_data[-20:]:
+                        log_entry = f"[QC] Score: {entry.get('total_score', 0)}/100 - Request: {entry.get('request', '')[:100]}\n"
+                        logs.append(log_entry)
+                    sources.append(str(quality_file))
+            except Exception as e:
+                print(f"   Warning: Could not read quality history: {e}")
+
+        return {
+            'logs': logs[-max_lines:],  # Limit to max_lines
+            'total_lines': len(logs[-max_lines:]),
+            'sources': sources
+        }
+
+    def _llm_analyze_logs(self, logs_data: Dict, tier: ModelTier) -> Dict[str, Any]:
+        """
+        Utilise le LLM pour analyser les logs
+
+        Args:
+            logs_data: Données de logs
+            tier: Tier du modèle à utiliser
+
+        Returns:
+            Dict avec analyse LLM
+        """
+        # Prepare logs summary
+        logs_text = ''.join(logs_data['logs'])
+
+        # Build analysis prompt
+        prompt = f"""Analyze these Cortex AI system logs and provide a comprehensive quality assessment.
+
+LOGS (last {logs_data['total_lines']} lines):
+{logs_text[:15000]}  # Limit to avoid token overflow
+
+Please analyze:
+1. Overall system quality (score /100)
+2. Performance of each agent (Triage, Planner, Context, Tooler, etc.)
+3. Key issues or problems identified
+4. Specific recommendations for improvement
+5. Your confidence in this analysis (0.0-1.0)
+
+Respond in JSON format:
+{{
+    "quality_score": <0-100>,
+    "confidence": <0.0-1.0>,
+    "agent_scores": [
+        {{"agent": "AgentName", "score": <0-100>, "assessment": "brief assessment"}}
+    ],
+    "issues": [
+        {{"severity": "high|medium|low", "description": "issue description"}}
+    ],
+    "recommendations": ["recommendation 1", "recommendation 2", ...],
+    "summary": "overall assessment summary"
+}}
+
+IMPORTANT: Be honest about your confidence. If logs are limited or unclear, set confidence < 0.7."""
+
+        # Call LLM
+        response = self.llm_client.chat_completion(
+            messages=[
+                {"role": "system", "content": "You are a quality control expert analyzing AI system logs."},
+                {"role": "user", "content": prompt}
+            ],
+            tier=tier,
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.3
+        )
+
+        # Parse response
+        try:
+            analysis = json.loads(response.content)
+        except json.JSONDecodeError:
+            # Fallback if JSON parsing fails
+            analysis = {
+                'quality_score': 50,
+                'confidence': 0.3,
+                'agent_scores': [],
+                'issues': [{'severity': 'high', 'description': 'Failed to parse LLM response'}],
+                'recommendations': ['Review LLM response format'],
+                'summary': 'Analysis failed'
+            }
+
+        # Add metadata
+        analysis['model'] = response.model
+        analysis['cost'] = response.cost
+        analysis['tokens'] = response.tokens_input + response.tokens_output
+
+        return analysis
+
     # Evaluation methods
 
     def _evaluate_efficiency(self, tokens_in: int, tokens_out: int, cost: float, duration: float) -> float:

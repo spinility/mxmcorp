@@ -243,7 +243,7 @@ class CortexCLI:
 
         elif cmd == "qc":
             if not args:
-                self.ui.error("Usage: qc <audit|report>")
+                self.ui.error("Usage: qc <audit|report|logs [max_lines]>")
             else:
                 self.cmd_qc(args)
 
@@ -1195,9 +1195,106 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 print()
                 self.ui.error(f"Failed to load metrics: {str(e)[:100]}")
 
+        elif sub_cmd == "logs":
+            self.ui.header("📋 LLM-Powered Agent Log Analysis", level=2)
+            print()
+
+            # Parse max_lines if provided
+            parts = args.split()
+            max_lines = 500
+            if len(parts) > 1 and parts[1].isdigit():
+                max_lines = int(parts[1])
+
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Analyzing agent logs (max {max_lines} lines)...")
+            print()
+
+            try:
+                result = self.quality_control_agent.analyze_agent_logs(max_lines=max_lines)
+
+                if result['success']:
+                    analysis = result['analysis']
+
+                    # Display overall score with grade
+                    score = analysis.get('quality_score', 0)
+                    grade = 'A+' if score >= 95 else ('A' if score >= 90 else ('B' if score >= 80 else ('C' if score >= 70 else ('D' if score >= 60 else 'F'))))
+                    score_color = Color.BRIGHT_GREEN if score >= 80 else (Color.YELLOW if score >= 60 else Color.RED)
+
+                    self.ui.success(f"✅ Log analysis complete!")
+                    print()
+                    print(f"  {self.ui.color('Overall Quality Score:', Color.CYAN)} {self.ui.color(f'{score}/100', score_color, bold=True)} ({self.ui.color(grade, score_color, bold=True)})")
+                    print(f"  {self.ui.color('Confidence:', Color.CYAN)} {analysis.get('confidence', 0):.0%}")
+                    print(f"  {self.ui.color('Model used:', Color.CYAN)} {result.get('model_used', 'unknown')}")
+                    if result.get('escalated'):
+                        print(f"  {self.ui.color('⬆️  Escalated to Claude', Color.YELLOW)} (DeepSeek confidence < 0.7)")
+                    print()
+
+                    # Display agent scores
+                    agent_scores = analysis.get('agent_scores', [])
+                    if agent_scores:
+                        print(f"  {self.ui.color('🤖 Agent Scores:', Color.MAGENTA)}")
+                        for agent_score in agent_scores[:10]:
+                            agent_name = agent_score.get('agent', 'Unknown')
+                            agent_sc = agent_score.get('score', 0)
+                            assessment = agent_score.get('assessment', '')
+                            sc_color = Color.BRIGHT_GREEN if agent_sc >= 80 else (Color.YELLOW if agent_sc >= 60 else Color.RED)
+                            print(f"    • {self.ui.color(agent_name, Color.CYAN)}: {self.ui.color(f'{agent_sc}/100', sc_color)} - {assessment[:60]}")
+                        if len(agent_scores) > 10:
+                            print(f"    ... and {len(agent_scores) - 10} more")
+                        print()
+
+                    # Display issues with severity color coding
+                    issues = analysis.get('issues', [])
+                    if issues:
+                        print(f"  {self.ui.color('⚠️  Issues Identified:', Color.YELLOW)}")
+                        for issue in issues[:8]:
+                            severity = issue.get('severity', 'low')
+                            description = issue.get('description', '')
+                            sev_color = Color.RED if severity == 'high' else (Color.YELLOW if severity == 'medium' else Color.GREEN)
+                            print(f"    • [{self.ui.color(severity.upper(), sev_color)}] {description}")
+                        if len(issues) > 8:
+                            print(f"    ... and {len(issues) - 8} more")
+                        print()
+
+                    # Display recommendations
+                    recommendations = analysis.get('recommendations', [])
+                    if recommendations:
+                        print(f"  {self.ui.color('💡 Recommendations:', Color.CYAN)}")
+                        for i, rec in enumerate(recommendations[:6], 1):
+                            print(f"    {i}. {rec}")
+                        if len(recommendations) > 6:
+                            print(f"    ... and {len(recommendations) - 6} more")
+                        print()
+
+                    # Display summary
+                    summary = analysis.get('summary', '')
+                    if summary:
+                        print(f"  {self.ui.color('📝 Summary:', Color.BRIGHT_BLACK)}")
+                        # Wrap text to 70 chars
+                        import textwrap
+                        wrapped = textwrap.fill(summary, width=74)
+                        for line in wrapped.split('\n'):
+                            print(f"    {line}")
+                        print()
+
+                    # Display cost
+                    cost = result.get('cost', 0.0)
+                    if cost > 0:
+                        self.total_cost += cost
+                        print(f"  {self.ui.color('Cost:', Color.BRIGHT_BLACK)} ${cost:.6f}")
+                        print()
+
+                else:
+                    self.ui.error("❌ Log analysis failed")
+                    if result.get('error'):
+                        print(f"  Error: {result['error']}")
+
+            except Exception as e:
+                print()
+                self.ui.error(f"Log analysis failed: {str(e)[:100]}")
+
         else:
             self.ui.error(f"Unknown QC command: {sub_cmd}")
-            self.ui.info("Available: qc audit, qc report")
+            self.ui.info("Available: qc audit, qc report, qc logs")
 
     def cmd_optimize(self):
         """Process optimization queue"""
