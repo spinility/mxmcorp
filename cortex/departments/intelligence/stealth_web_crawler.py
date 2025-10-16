@@ -142,12 +142,13 @@ class StealthWebCrawler:
             # XPath 1.0 via lxml
             return tree.xpath(xpath)
 
-    def _can_fetch(self, url: str) -> bool:
+    def _can_fetch(self, url: str, user_agent: str = None) -> bool:
         """
         Vérifie si robots.txt autorise le scraping
 
         Args:
             url: URL à vérifier
+            user_agent: User-agent à utiliser (si None, utilise un navigateur réaliste)
 
         Returns:
             True si autorisé
@@ -168,7 +169,12 @@ class StealthWebCrawler:
                     # Si erreur lecture robots.txt, autoriser
                     return True
 
-            return self.robots_cache[base_url].can_fetch("*", url)
+            # Utiliser un user-agent de navigateur réaliste au lieu de "*"
+            # Cela permet de passer sur Wikipedia qui ne bloque pas les navigateurs légitimes
+            if user_agent is None:
+                user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+            return self.robots_cache[base_url].can_fetch(user_agent, url)
 
         except Exception:
             # En cas d'erreur, autoriser par défaut
@@ -186,9 +192,10 @@ class StealthWebCrawler:
         Returns:
             Response object
         """
-        # Override user-agent
+        # Override user-agent seulement si absent
         headers = headers.copy()
-        headers["User-Agent"] = self._get_random_user_agent()
+        if "User-Agent" not in headers:
+            headers["User-Agent"] = self._get_random_user_agent()
 
         # Ajouter headers réalistes si absents
         if "Accept" not in headers:
@@ -230,8 +237,9 @@ class StealthWebCrawler:
         start_time = time.time()
 
         try:
-            # Vérifier robots.txt
-            if check_robots and not self._can_fetch(source.url):
+            # Vérifier robots.txt avec le user-agent qu'on va utiliser
+            user_agent = self._get_random_user_agent()
+            if check_robots and not self._can_fetch(source.url, user_agent):
                 return ValidationResult(
                     success=False,
                     elements_found=0,
@@ -241,8 +249,10 @@ class StealthWebCrawler:
                     status_code=403
                 )
 
-            # Fetch page
-            response = self._fetch_page(source.url, source.headers)
+            # Fetch page avec le même user-agent
+            headers = source.headers.copy()
+            headers["User-Agent"] = user_agent
+            response = self._fetch_page(source.url, headers, use_delay=True)
             response_time = (time.time() - start_time) * 1000
 
             if response.status_code != 200:
