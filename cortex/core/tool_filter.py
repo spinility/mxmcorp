@@ -19,7 +19,8 @@ class ToolFilter:
             "web": ["web", "search", "fetch", "url", "http", "website", "internet", "online", "weather"],
             "git": ["git", "commit", "push", "pull", "branch", "merge", "clone", "repository", "repo"],
             "pip": ["pip", "install", "uninstall", "package", "library", "module", "dependency"],
-            "scraping": ["scrape", "xpath", "extract", "crawl", "parse", "html", "web page", "source"]
+            "scraping": ["scrape", "xpath", "extract", "crawl", "parse", "html", "web page", "source"],
+            "system": ["roadmap", "status", "tasks", "show", "display", "view", "see", "montre", "affiche", "voir"]
         }
 
     def filter_tools(self, user_request: str, all_tools: List[StandardTool]) -> List[StandardTool]:

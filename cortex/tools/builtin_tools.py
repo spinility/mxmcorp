@@ -453,6 +453,74 @@ def delete_file(path: str, recursive: bool = False) -> Dict[str, Any]:
         }
 
 
+@tool(
+    name="show_roadmap",
+    description="Display the current roadmap showing pending tasks, completed tasks, and project status. Use this when the user asks to see the roadmap.",
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": []
+    },
+    category="system",
+    tags=["roadmap", "tasks", "status", "show", "display"]
+)
+def show_roadmap() -> Dict[str, Any]:
+    """
+    Display the current ROADMAP.json file
+
+    Returns:
+        Dict with roadmap data
+    """
+    try:
+        roadmap_path = Path("cortex/data/ROADMAP.json")
+
+        if not roadmap_path.exists():
+            return {
+                "success": False,
+                "error": "ROADMAP.json not found at cortex/data/ROADMAP.json"
+            }
+
+        # Read the roadmap file
+        with open(roadmap_path, 'r', encoding='utf-8') as f:
+            roadmap = json.load(f)
+
+        # Format summary
+        total_tasks = roadmap.get("total_tasks", 0)
+        updated_at = roadmap.get("updated_at", "Unknown")
+        tasks = roadmap.get("tasks", [])
+
+        # Count by status
+        status_counts = {}
+        for task in tasks:
+            status = task.get("status", "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        # Format for display
+        summary = {
+            "total_tasks": total_tasks,
+            "updated_at": updated_at,
+            "status_breakdown": status_counts,
+            "tasks": tasks
+        }
+
+        return {
+            "success": True,
+            "data": summary,
+            "message": f"Roadmap loaded: {total_tasks} total tasks, last updated {updated_at}"
+        }
+
+    except json.JSONDecodeError as e:
+        return {
+            "success": False,
+            "error": f"Failed to parse ROADMAP.json: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to read roadmap: {str(e)}"
+        }
+
+
 def get_all_builtin_tools():
     """
     Get all built-in tools (filesystem + intelligence)
@@ -470,7 +538,8 @@ def get_all_builtin_tools():
         append_to_file,
         list_directory,
         file_exists,
-        delete_file
+        delete_file,
+        show_roadmap
     ]
 
     intelligence_tools = get_all_intelligence_tools()

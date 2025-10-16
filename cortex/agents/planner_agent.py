@@ -112,15 +112,16 @@ class PlannerAgent(DecisionAgent):
 REQUÊTE: "{user_request}"
 
 CRITÈRES pour détecter une demande de PLANIFICATION:
-- Contient "planifier", "plan", "étapes", "décomposer", "organiser"
-- Demande de créer une roadmap, un planning, ou une liste de tâches
+- Contient "planifier", "planifie", "crée un plan", "décomposer", "organiser"
+- Demande EXPLICITE de créer une roadmap ou un planning
 - Demande d'organiser un projet ou une fonctionnalité complexe
 - Demande de structurer une approche
 
-CRITÈRES pour NE PAS détecter comme planification:
+CRITÈRES pour NE PAS détecter comme planification (IMPORTANT):
+- Demande de VOIR/AFFICHER quelque chose existant ("montre", "affiche", "voir le roadmap")
+- Demande de LIRE un fichier existant
 - Demande d'exécution immédiate (juste faire quelque chose)
-- Question simple
-- Conversation générale
+- Question simple ou conversation générale
 
 Réponds UNIQUEMENT avec un JSON:
 {{
@@ -133,7 +134,7 @@ Réponds UNIQUEMENT avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": detection_prompt}],
                 tier=ModelTier.NANO,  # Rapide et économique
-                max_tokens=200,
+                max_tokens=500,  # Increased from 200 to prevent JSON truncation
                 temperature=1.0  # NANO model requires temperature=1 (default)
             )
 
@@ -141,16 +142,27 @@ Réponds UNIQUEMENT avec un JSON:
             result = json.loads(response.content.strip())
             return result['is_planning'], result['confidence']
 
-        except Exception as e:
-            print(f"⚠️  Error in planning detection: {e}")
-            # En cas d'erreur, on utilise des heuristiques simples
-            planning_keywords = [
-                'plan', 'planifier', 'étapes', 'décomposer', 'organiser',
-                'roadmap', 'planning', 'structurer', 'architecture'
-            ]
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"⚠️  Error in planning detection (JSON parsing failed): {e}")
+            # Fallback intelligent avec détection de "show/display"
             user_lower = user_request.lower()
-            has_keyword = any(kw in user_lower for kw in planning_keywords)
-            return has_keyword, 0.7 if has_keyword else 0.3
+
+            # Mots-clés pour AFFICHER quelque chose (PAS de planification)
+            show_keywords = ['montre', 'affiche', 'voir', 'display', 'show', 'list', 'liste']
+
+            # Mots-clés pour CRÉER un plan (planification réelle)
+            planning_action_keywords = ['planifie', 'crée un plan', 'décompose', 'organise', 'structure']
+
+            # Si demande d'AFFICHER, ce n'est PAS une planification
+            if any(kw in user_lower for kw in show_keywords):
+                return False, 0.1
+
+            # Si demande explicite de PLANIFIER, c'est une planification
+            if any(kw in user_lower for kw in planning_action_keywords):
+                return True, 0.8
+
+            # Fallback: utiliser heuristiques basiques
+            return False, 0.3
 
     def create_plan(
         self,
