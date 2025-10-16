@@ -40,9 +40,16 @@ from cortex.tools.pip_tools import get_all_pip_tools
 from cortex.tools.intelligence_tools import get_all_intelligence_tools
 
 # Cortex agents
-from cortex.agents import create_triage_agent, create_tooler_agent, create_communications_agent, create_planner_agent, create_maintenance_agent
+from cortex.agents import (
+    create_triage_agent, create_tooler_agent, create_communications_agent,
+    create_planner_agent, create_maintenance_agent, create_harmonization_agent,
+    create_quality_control_agent
+)
 from cortex.agents.context_agent import create_context_agent
 from cortex.agents.smart_router_agent import create_smart_router_agent
+
+# Cortex departments
+from cortex.departments.optimization import OptimizationOrchestrator
 
 # Cortex managers
 from cortex.core.todo_manager_wrapper import create_todo_manager, TaskStatus  # Using TodoDB backend
@@ -77,6 +84,11 @@ class CortexCLI:
         self.context_agent = create_context_agent(self.llm_client)
         self.smart_router = create_smart_router_agent(self.llm_client)
         self.maintenance_agent = create_maintenance_agent(self.llm_client)
+        self.harmonization_agent = create_harmonization_agent(self.llm_client)
+        self.quality_control_agent = create_quality_control_agent(self.llm_client)
+
+        # Optimization department
+        self.optimization_orchestrator = OptimizationOrchestrator()
 
         # Current employee handling requests
         self.current_employee = "Cortex"  # Default employee
@@ -225,6 +237,18 @@ class CortexCLI:
 
         elif cmd == "maintenance" or cmd == "sync":
             self.cmd_maintenance()
+
+        elif cmd == "harmonize":
+            self.cmd_harmonize()
+
+        elif cmd == "qc":
+            if not args:
+                self.ui.error("Usage: qc <audit|report>")
+            else:
+                self.cmd_qc(args)
+
+        elif cmd == "optimize":
+            self.cmd_optimize()
 
         else:
             # Not a recognized command - treat as natural language task
@@ -1079,6 +1103,136 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 import traceback
                 self.ui.warning("Debug traceback:")
                 traceback.print_exc()
+
+    def cmd_harmonize(self):
+        """Run architecture harmonization audit"""
+        self.ui.header("🎯 Architecture Harmonization", level=2)
+        print()
+
+        try:
+            result = self.harmonization_agent.run_full_audit()
+
+            if result['success']:
+                self.ui.success(f"✅ Harmonization audit complete!")
+                print()
+                print(f"  {self.ui.color('Overall score:', Color.CYAN)} {result.get('overall_score', 0)}/100")
+                print(f"  {self.ui.color('Synergy score:', Color.CYAN)} {result.get('synergy_score', 0):.1f}/100")
+                print(f"  {self.ui.color('Duplications found:', Color.CYAN)} {result.get('duplications_found', 0)}")
+                print(f"  {self.ui.color('Misattributions found:', Color.CYAN)} {result.get('misattributions_found', 0)}")
+                print()
+
+                # Show recommendations
+                recommendations = result.get('recommendations', [])
+                if recommendations:
+                    print(f"  {self.ui.color('📋 Recommendations:', Color.MAGENTA)}")
+                    for i, rec in enumerate(recommendations[:5], 1):
+                        priority_color = Color.RED if rec['priority'] == 'high' else (Color.YELLOW if rec['priority'] == 'medium' else Color.GREEN)
+                        print(f"    {i}. [{self.ui.color(rec['priority'].upper(), priority_color)}] {rec['description']}")
+                    if len(recommendations) > 5:
+                        print(f"    ... and {len(recommendations) - 5} more")
+                    print()
+            else:
+                self.ui.error("❌ Harmonization audit failed")
+                if result.get('error'):
+                    print(f"  Error: {result['error']}")
+
+        except Exception as e:
+            print()
+            self.ui.error(f"Harmonization failed: {str(e)[:100]}")
+
+    def cmd_qc(self, args: str):
+        """Run quality control commands"""
+        sub_cmd = args.split()[0].lower()
+
+        if sub_cmd == "audit":
+            self.ui.header("📊 Quality Control Audit", level=2)
+            print()
+
+            try:
+                result = self.quality_control_agent.run_full_audit()
+
+                if result['success']:
+                    self.ui.success("✅ QC Audit complete!")
+                    print()
+                    print(f"  {self.ui.color('Total requests analyzed:', Color.CYAN)} {result.get('total_requests', 0)}")
+                    print(f"  {self.ui.color('Average quality score:', Color.CYAN)} {result.get('avg_score', 0):.1f}/100")
+                    print(f"  {self.ui.color('Average cost:', Color.CYAN)} ${result.get('avg_cost', 0):.6f}")
+                    print(f"  {self.ui.color('Average tokens:', Color.CYAN)} {result.get('avg_tokens', 0):.0f}")
+                    print()
+
+                    patterns = result.get('patterns', [])
+                    if patterns:
+                        print(f"  {self.ui.color('🔍 Patterns detected:', Color.YELLOW)}")
+                        for pattern in patterns:
+                            print(f"    • {pattern['description']}")
+                        print()
+                else:
+                    self.ui.error("❌ QC Audit failed")
+                    if result.get('error'):
+                        print(f"  Error: {result['error']}")
+
+            except Exception as e:
+                print()
+                self.ui.error(f"QC audit failed: {str(e)[:100]}")
+
+        elif sub_cmd == "report":
+            self.ui.header("📊 Quality Metrics Report", level=2)
+            print()
+
+            try:
+                result = self.quality_control_agent.show_quality_metrics()
+
+                if result['success'] and result.get('metrics'):
+                    metrics = result['metrics']
+                    print(f"  {self.ui.color('Total evaluations:', Color.CYAN)} {metrics.get('total_evaluations', 0)}")
+                    print(f"  {self.ui.color('Recent avg score:', Color.CYAN)} {metrics.get('avg_score_recent', 0):.1f}/100")
+                    print(f"  {self.ui.color('All-time avg score:', Color.CYAN)} {metrics.get('avg_score_all', 0):.1f}/100")
+                    print()
+                else:
+                    self.ui.info("No quality metrics available yet")
+
+            except Exception as e:
+                print()
+                self.ui.error(f"Failed to load metrics: {str(e)[:100]}")
+
+        else:
+            self.ui.error(f"Unknown QC command: {sub_cmd}")
+            self.ui.info("Available: qc audit, qc report")
+
+    def cmd_optimize(self):
+        """Process optimization queue"""
+        self.ui.header("⚙️  Optimization Processing", level=2)
+        print()
+
+        try:
+            result = self.optimization_orchestrator.process_queue()
+
+            if result['success']:
+                self.ui.success("✅ Optimization processing complete!")
+                print()
+                print(f"  {self.ui.color('Items processed:', Color.CYAN)} {result.get('processed', 0)}")
+                print(f"  {self.ui.color('Patterns found:', Color.CYAN)} {result.get('patterns_found', 0)}")
+                print(f"  {self.ui.color('Optimizations suggested:', Color.CYAN)} {result.get('optimizations_suggested', 0)}")
+                print(f"  {self.ui.color('Optimizations applied:', Color.CYAN)} {result.get('optimizations_applied', 0)}")
+                print(f"  {self.ui.color('Critical for review:', Color.CYAN)} {result.get('critical_for_review', 0)}")
+                print()
+
+                applied = result.get('applied_optimizations', [])
+                if applied:
+                    print(f"  {self.ui.color('✓ Applied optimizations:', Color.GREEN)}")
+                    for opt in applied[:5]:
+                        print(f"    • {opt['description']}")
+                    if len(applied) > 5:
+                        print(f"    ... and {len(applied) - 5} more")
+                    print()
+            else:
+                self.ui.error("❌ Optimization processing failed")
+                if result.get('error'):
+                    print(f"  Error: {result['error']}")
+
+        except Exception as e:
+            print()
+            self.ui.error(f"Optimization failed: {str(e)[:100]}")
 
 
 def main():
