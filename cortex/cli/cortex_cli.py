@@ -308,6 +308,10 @@ Total Cost: ${sum(self.costs.values()):.6f}
         # Add user message to conversation manager
         self.conversation_manager.add_message("user", description)
 
+        # Track start time for QC duration measurement
+        import time
+        start_time = time.time()
+
         try:
             # Step 0: Check if this is a planning request
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Checking if planning is needed...")
@@ -532,6 +536,17 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 "tool_calls": len(response.tool_calls) if response.tool_calls else 0
             })
 
+            # Calculate task duration
+            duration = time.time() - start_time
+
+            # Run automatic quality control
+            self._run_quality_control(
+                description=description,
+                response=response,
+                selection=selection,
+                duration=duration
+            )
+
             # Success message
             self.ui.success(f"Task completed! Cost: ${response.cost:.6f} | Tokens: {response.tokens_input + response.tokens_output}")
 
@@ -560,6 +575,83 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 print()
                 self.ui.warning("Debug traceback:")
                 traceback.print_exc()
+
+    def _run_quality_control(self, description: str, response: Any, selection: Any, duration: float):
+        """
+        Run automatic quality control after task completion
+
+        Args:
+            description: User request
+            response: LLM response object
+            selection: Model selection object
+            duration: Task duration in seconds
+        """
+        try:
+            print()
+            print(self.ui.color("━" * 80, Color.CYAN))
+            print(f"{self.ui.color('📊 QUALITY CONTROL', Color.BRIGHT_MAGENTA, bold=True)} - Analyzing request quality...")
+            print(self.ui.color("━" * 80, Color.CYAN))
+            print()
+
+            # Build request data for QC
+            request_data = {
+                'user_request': description,
+                'response': response.content if response.content else '',
+                'model': response.model,
+                'tier': selection.tier.value,
+                'tokens_input': response.tokens_input,
+                'tokens_output': response.tokens_output,
+                'cost': response.cost,
+                'tool_calls': response.tool_calls if response.tool_calls else [],
+                'duration': duration
+            }
+
+            # Run QC analysis (this is fast - heuristic based, no LLM call)
+            qc_result = self.quality_control_agent.analyze_request(request_data)
+
+            if qc_result['success']:
+                score = qc_result['total_score']
+                grade = qc_result['grade']
+
+                # Determine color based on score
+                score_color = Color.BRIGHT_GREEN if score >= 80 else (Color.YELLOW if score >= 60 else Color.RED)
+
+                print(f"{self.ui.color('✓', Color.GREEN)} Quality analysis complete!")
+                print()
+                print(f"  {self.ui.color('Overall Score:', Color.CYAN)} {self.ui.color(f'{score:.1f}/100', score_color, bold=True)} ({self.ui.color(grade, score_color, bold=True)})")
+
+                # Show dimension scores
+                scores = qc_result['scores']
+                print(f"  {self.ui.color('Breakdown:', Color.BRIGHT_BLACK)}")
+                print(f"    • Efficiency: {scores['efficiency']:.1f}/25")
+                print(f"    • Quality: {scores['quality']:.1f}/25")
+                print(f"    • Model Choice: {scores['model_choice']:.1f}/20")
+                print(f"    • Tool Usage: {scores['tool_usage']:.1f}/20")
+                print(f"    • User Experience: {scores['user_experience']:.1f}/10")
+                print()
+
+                # Show recommendations (top 3)
+                recommendations = qc_result.get('recommendations', [])
+                if recommendations:
+                    print(f"  {self.ui.color('💡 Recommendations:', Color.YELLOW)} {len(recommendations)} optimization opportunities")
+                    for i, rec in enumerate(recommendations[:3], 1):
+                        priority_color = Color.RED if rec['priority'] == 'high' else (Color.YELLOW if rec['priority'] == 'medium' else Color.GREEN)
+                        print(f"    {i}. [{self.ui.color(rec['priority'].upper(), priority_color)}] {rec['suggestion']}")
+                    if len(recommendations) > 3:
+                        print(f"    ... and {len(recommendations) - 3} more")
+                    print()
+
+                print(f"  {self.ui.color('→', Color.BRIGHT_BLACK)} Recommendations saved to optimization queue")
+                print()
+
+            else:
+                print(f"{self.ui.color('⚠️', Color.YELLOW)} QC analysis had issues: {qc_result.get('error', 'Unknown error')}")
+                print()
+
+        except Exception as e:
+            # QC failure should not break the main workflow
+            print(f"{self.ui.color('⚠️', Color.YELLOW)} QC analysis failed: {str(e)[:100]}")
+            print()
 
     def _handle_tooler_request(self, response_content: str, user_request: str):
         """
