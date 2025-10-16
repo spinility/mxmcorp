@@ -130,7 +130,7 @@ class NanoSelfAssessment:
             llm_response = self.llm.complete(
                 messages=[{"role": "user", "content": prompt}],
                 tier=self.tier,
-                max_tokens=200,
+                max_tokens=1000,  # Increased from 200 to prevent truncation
                 temperature=1.0  # Nano ne supporte que temperature=1.0
             )
 

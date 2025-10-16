@@ -123,7 +123,7 @@ Réponds UNIQUEMENT avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": triage_prompt}],
                 tier=ModelTier.NANO,  # Ultra-rapide et économique
-                max_tokens=200,
+                max_tokens=1000,  # Increased from 200 to prevent truncation
                 temperature=1.0
             )
 
