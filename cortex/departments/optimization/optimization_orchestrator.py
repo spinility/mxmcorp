@@ -1,15 +1,15 @@
 """
-Optimization Orchestrator - Coordonne l'optimisation continue du système
+Optimization Orchestrator - Coordonne l'optimisation continue du systÃ¨me
 
-Reçoit les recommandations du QualityControlAgent et applique des optimisations.
+ReÃ§oit les recommandations du QualityControlAgent et applique des optimisations.
 
 Workflow:
-1. QC Agent analyse une requête ’ génère recommandations
-2. Recommendations ajoutées à la queue
-3. Orchestrator analyse la queue périodiquement
-4. Patterns identifiés ’ optimisations suggérées
-5. Optimisations sûres appliquées automatiquement
-6. Optimisations critiques passées au HarmonizationAgent pour validation
+1. QC Agent analyse une requÃªte Â’ gÃ©nÃ¨re recommandations
+2. Recommendations ajoutÃ©es Ã  la queue
+3. Orchestrator analyse la queue pÃ©riodiquement
+4. Patterns identifiÃ©s Â’ optimisations suggÃ©rÃ©es
+5. Optimisations sÃ»res appliquÃ©es automatiquement
+6. Optimisations critiques passÃ©es au HarmonizationAgent pour validation
 """
 
 from typing import Dict, Any, List, Optional
@@ -20,7 +20,7 @@ from collections import Counter
 
 
 class OptimizationOrchestrator:
-    """Orchestrateur d'optimisation système"""
+    """Orchestrateur d'optimisation systÃ¨me"""
 
     def __init__(self):
         """Initialize orchestrator"""
@@ -36,11 +36,11 @@ class OptimizationOrchestrator:
         Process la queue d'optimisation
 
         Returns:
-            Dict avec résultats du traitement
+            Dict avec rÃ©sultats du traitement
         """
         try:
             print(f"\n{'='*70}")
-            print("™  OPTIMIZATION ORCHESTRATOR - Processing Queue")
+            print("Â™  OPTIMIZATION ORCHESTRATOR - Processing Queue")
             print(f"{'='*70}\n")
 
             # Load queue
@@ -115,7 +115,7 @@ class OptimizationOrchestrator:
 
     def get_optimization_report(self) -> Dict[str, Any]:
         """
-        Génère un rapport d'optimisation
+        GÃ©nÃ¨re un rapport d'optimisation
 
         Returns:
             Dict avec rapport
@@ -199,7 +199,7 @@ class OptimizationOrchestrator:
             queue: Queue d'optimisation
 
         Returns:
-            Liste de patterns détectés
+            Liste de patterns dÃ©tectÃ©s
         """
         patterns = []
 
@@ -256,13 +256,13 @@ class OptimizationOrchestrator:
 
     def _generate_system_optimizations(self, patterns: List[Dict]) -> List[Dict]:
         """
-        Génère des optimisations système basées sur les patterns
+        GÃ©nÃ¨re des optimisations systÃ¨me basÃ©es sur les patterns
 
         Args:
-            patterns: Patterns détectés
+            patterns: Patterns dÃ©tectÃ©s
 
         Returns:
-            Liste d'optimisations proposées
+            Liste d'optimisations proposÃ©es
         """
         optimizations = []
 
@@ -333,13 +333,13 @@ class OptimizationOrchestrator:
 
     def _apply_safe_optimizations(self, optimizations: List[Dict]) -> List[Dict]:
         """
-        Applique les optimisations sûres automatiquement
+        Applique les optimisations sÃ»res automatiquement
 
         Args:
             optimizations: Liste d'optimisations
 
         Returns:
-            Liste des optimisations appliquées
+            Liste des optimisations appliquÃ©es
         """
         applied = []
 
@@ -364,13 +364,13 @@ class OptimizationOrchestrator:
 
     def _apply_optimization(self, optimization: Dict) -> bool:
         """
-        Applique une optimisation spécifique
+        Applique une optimisation spÃ©cifique
 
         Args:
-            optimization: Optimisation à appliquer
+            optimization: Optimisation Ã  appliquer
 
         Returns:
-            True si succès
+            True si succÃ¨s
         """
         # This is simplified - in real implementation would actually modify config
         opt_type = optimization.get('action')
