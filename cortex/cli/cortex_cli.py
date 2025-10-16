@@ -40,7 +40,7 @@ from cortex.tools.pip_tools import get_all_pip_tools
 from cortex.tools.intelligence_tools import get_all_intelligence_tools
 
 # Cortex agents
-from cortex.agents import create_tooler_agent, create_communications_agent, create_planner_agent
+from cortex.agents import create_triage_agent, create_tooler_agent, create_communications_agent, create_planner_agent
 from cortex.agents.context_agent import create_context_agent
 from cortex.agents.smart_router_agent import create_smart_router_agent
 
@@ -70,6 +70,7 @@ class CortexCLI:
         self.conversation_manager = create_conversation_manager(self.llm_client)
 
         # Specialized agents
+        self.triage_agent = create_triage_agent(self.llm_client)
         self.tooler_agent = create_tooler_agent(self.llm_client)
         self.communications_agent = create_communications_agent(self.llm_client)
         self.planner_agent = create_planner_agent(self.llm_client, self.todo_manager)
@@ -293,40 +294,47 @@ Total Cost: ${sum(self.costs.values()):.6f}
             print(f"  {self.ui.color('Direct execution', Color.CYAN)} (planning confidence: {confidence:.2f})")
             print()
 
-            # Step 0.5: Show which employee is handling this
-            self._show_employee_section(self.current_employee, "Processing request...")
-            print()
-
             # Step 1: Model selection
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Selecting optimal model...")
             selection = self.model_router.select_model(description)
-            print(f"  Using {self.ui.color(selection.model_name, Color.GREEN)} (${selection.estimated_cost:.6f}/1M tokens)")
+
+            # Step 2: Triage - Decide if we need Context Agent or can respond directly
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Triage Agent ({self.ui.color(selection.model_name, Color.GREEN)}) analyzing request...")
+            triage_decision = self.triage_agent.triage_request(description)
+
+            print(f"  Route: {self.ui.color(triage_decision['route'].upper(), Color.CYAN)} (confidence: {triage_decision['confidence']:.2f})")
+            print(f"  Reason: {triage_decision['reason']}")
             print()
 
-            # Step 1.5: Context Agent - Prepare application context
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Context Agent preparing optimized context...")
-            self._show_employee_section("Context Agent", "Analyzing context necessity...")
-            print()
+            # Update costs
+            self.total_cost += triage_decision.get('cost', 0.0)
 
-            context_result = self.context_agent.prepare_context_for_request(
-                user_request=description,
-                target_tier=selection.tier
-            )
+            # Step 3: Context Agent - Only if needed
+            context_result = {'context': '', 'metadata': {'context_needed': {'needed': False, 'reason': 'Triage decided direct response', 'confidence': 1.0}, 'cache_hits': [], 'git_diff_included': False, 'total_cost': 0.0}}
 
-            # Display context preparation results
-            context_needed = context_result['metadata']['context_needed']
-            print(f"  Context needed: {self.ui.color('YES' if context_needed['needed'] else 'NO', Color.GREEN if context_needed['needed'] else Color.YELLOW)}")
-            print(f"  Reason: {context_needed['reason']}")
-            print(f"  Confidence: {context_needed['confidence']:.0%}")
+            if triage_decision['route'] == 'expert' and triage_decision.get('needs_context', True):
+                self._show_employee_section(f"Context Agent ({selection.model_name})", "Preparing optimized context...")
+                print()
 
-            if context_result['metadata']['cache_hits']:
-                print(f"  {self.ui.color('✓', Color.GREEN)} Cache hits: {len(context_result['metadata']['cache_hits'])}")
-                for hit in context_result['metadata']['cache_hits']:
-                    print(f"    • {hit['id']} (similarity: {hit['similarity']:.2f})")
+                context_result = self.context_agent.prepare_context_for_request(
+                    user_request=description,
+                    target_tier=selection.tier
+                )
 
-            if context_result['metadata']['git_diff_included']:
-                print(f"  {self.ui.color('✓', Color.GREEN)} Git diff included")
-            print()
+            # Display context preparation results (only if Context Agent was called)
+            if triage_decision['route'] == 'expert' and triage_decision.get('needs_context', True):
+                context_needed = context_result['metadata']['context_needed']
+                print(f"  Context needed: {self.ui.color('YES' if context_needed['needed'] else 'NO', Color.GREEN if context_needed['needed'] else Color.YELLOW)}")
+                print(f"  Reason: {context_needed['reason']}")
+                print(f"  Confidence: {context_needed['confidence']:.0%}")
+
+                if context_result['metadata']['cache_hits']:
+                    print(f"  {self.ui.color('✓', Color.GREEN)} Cache hits: {len(context_result['metadata']['cache_hits'])}")
+                    for hit in context_result['metadata']['cache_hits']:
+                        print(f"    • {hit['id']} (similarity: {hit['similarity']:.2f})")
+
+                if context_result['metadata']['git_diff_included']:
+                    print(f"  {self.ui.color('✓', Color.GREEN)} Git diff included")
+                print()
 
             # Step 2: Build optimized prompt with dynamic tool context
             print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Building optimized prompt for {selection.tier.value}...")
