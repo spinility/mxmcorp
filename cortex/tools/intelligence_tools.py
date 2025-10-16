@@ -59,12 +59,35 @@ def scrape_xpath(url: str, xpath: str, check_robots: bool = False) -> Dict[str, 
             validation = crawler.validate_xpath(source, check_robots=False)
 
             if not validation.success:
+                error_msg = validation.error
+
+                # Ajouter des suggestions si HTTP 403
+                if "403" in str(error_msg):
+                    suggestions = []
+
+                    # Détecter les sites protégés connus
+                    if any(domain in url.lower() for domain in ["openai.com", "anthropic.com", "cloudflare"]):
+                        suggestions.append("This site uses advanced anti-bot protection (Cloudflare/CDN)")
+                        suggestions.append("Consider using official APIs instead of scraping")
+
+                    suggestions.append("Try: Use WebFetch tool instead (may bypass some protections)")
+                    suggestions.append("Alternative: Search for API documentation or RSS feeds")
+
+                    return {
+                        "success": False,
+                        "error": error_msg,
+                        "url": url,
+                        "xpath": xpath,
+                        "message": f"Scraping blocked by site protection. Suggestions: {'; '.join(suggestions)}",
+                        "suggestions": suggestions
+                    }
+
                 return {
                     "success": False,
-                    "error": validation.error,
+                    "error": error_msg,
                     "url": url,
                     "xpath": xpath,
-                    "message": f"XPath validation failed: {validation.error}"
+                    "message": f"XPath validation failed: {error_msg}"
                 }
 
             # Scraper sans re-valider
@@ -81,12 +104,35 @@ def scrape_xpath(url: str, xpath: str, check_robots: bool = False) -> Dict[str, 
                 "message": f"Extracted {len(result.data)} elements successfully"
             }
         else:
+            error_msg = result.validation_before_scrape.error
+
+            # Ajouter des suggestions si HTTP 403
+            if "403" in str(error_msg):
+                suggestions = []
+
+                # Détecter les sites protégés connus
+                if any(domain in url.lower() for domain in ["openai.com", "anthropic.com", "cloudflare"]):
+                    suggestions.append("This site uses advanced anti-bot protection (Cloudflare/CDN)")
+                    suggestions.append("Consider using official APIs instead of scraping")
+
+                suggestions.append("Try: Use WebFetch tool instead (may bypass some protections)")
+                suggestions.append("Alternative: Search for API documentation or RSS feeds")
+
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "url": url,
+                    "xpath": xpath,
+                    "message": f"Scraping blocked by site protection. Suggestions: {'; '.join(suggestions)}",
+                    "suggestions": suggestions
+                }
+
             return {
                 "success": False,
-                "error": result.validation_before_scrape.error,
+                "error": error_msg,
                 "url": url,
                 "xpath": xpath,
-                "message": f"Scraping failed: {result.validation_before_scrape.error}"
+                "message": f"Scraping failed: {error_msg}"
             }
 
     except Exception as e:

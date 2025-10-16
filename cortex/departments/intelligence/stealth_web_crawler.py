@@ -256,7 +256,7 @@ class StealthWebCrawler:
 
     def _fetch_page(self, url: str, headers: Dict[str, str], use_delay: bool = True) -> requests.Response:
         """
-        Fetch une page avec techniques stealth
+        Fetch une page avec techniques stealth avancées
 
         Args:
             url: URL à fetcher
@@ -266,18 +266,50 @@ class StealthWebCrawler:
         Returns:
             Response object
         """
+        from urllib.parse import urlparse
+
         # Override user-agent seulement si absent
         headers = headers.copy()
         if "User-Agent" not in headers:
             headers["User-Agent"] = self._get_user_agent()
 
-        # Ajouter headers réalistes si absents
+        # Headers réalistes d'un vrai browser Chrome moderne
         if "Accept" not in headers:
-            headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
         if "Accept-Language" not in headers:
-            headers["Accept-Language"] = "en-US,en;q=0.9"
+            headers["Accept-Language"] = "en-US,en;q=0.9,fr;q=0.8"
+        if "Accept-Encoding" not in headers:
+            headers["Accept-Encoding"] = "gzip, deflate, br"
         if "DNT" not in headers:
             headers["DNT"] = "1"
+        if "Connection" not in headers:
+            headers["Connection"] = "keep-alive"
+        if "Upgrade-Insecure-Requests" not in headers:
+            headers["Upgrade-Insecure-Requests"] = "1"
+
+        # Headers Sec-Fetch-* (Chrome moderne)
+        parsed_url = urlparse(url)
+        if "Sec-Fetch-Dest" not in headers:
+            headers["Sec-Fetch-Dest"] = "document"
+        if "Sec-Fetch-Mode" not in headers:
+            headers["Sec-Fetch-Mode"] = "navigate"
+        if "Sec-Fetch-Site" not in headers:
+            headers["Sec-Fetch-Site"] = "none"
+        if "Sec-Fetch-User" not in headers:
+            headers["Sec-Fetch-User"] = "?1"
+
+        # Sec-CH-UA headers (Chrome User Agent Client Hints)
+        if "Sec-CH-UA" not in headers:
+            headers["Sec-CH-UA"] = '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"'
+        if "Sec-CH-UA-Mobile" not in headers:
+            headers["Sec-CH-UA-Mobile"] = "?0"
+        if "Sec-CH-UA-Platform" not in headers:
+            headers["Sec-CH-UA-Platform"] = '"Windows"'
+
+        # Referer si disponible (simule navigation depuis Google)
+        if "Referer" not in headers:
+            # Simule une visite depuis Google search
+            headers["Referer"] = "https://www.google.com/"
 
         # Random delay avant requête (optionnel pour tests)
         if use_delay:
