@@ -87,7 +87,10 @@ class ToolExecutor:
             iteration += 1
 
             if verbose:
-                print(f"\n[Iteration {iteration}] Calling LLM...")
+                if iteration == 1:
+                    print(f"  🤖 Iteration 1: Analyzing request and selecting tools...")
+                else:
+                    print(f"  🤖 Iteration {iteration}: Generating final response from tool results...")
 
             # Appeler le LLM avec les tools
             response = self.llm_client.complete(
@@ -101,12 +104,12 @@ class ToolExecutor:
             # Si pas de tool calls, c'est la réponse finale
             if not response.tool_calls:
                 if verbose:
-                    print(f"[Iteration {iteration}] Final response received")
+                    print(f"  ✅ Completed: Final response ready")
                 return response
 
             # Exécuter les tools demandés
             if verbose:
-                print(f"[Iteration {iteration}] Executing {len(response.tool_calls)} tool(s)...")
+                print(f"  🔧 Executing {len(response.tool_calls)} tool(s)...")
 
             tool_results = []
             for tool_call in response.tool_calls:
@@ -127,13 +130,25 @@ class ToolExecutor:
                     } for tc in response.tool_calls]
                 })
 
-                conversation_messages.append({
-                    "role": "user",
-                    "content": [{
+                # Optimiser le format des tool results pour Claude
+                optimized_results = []
+                for result, tc in zip(tool_results, response.tool_calls):
+                    if result.success and isinstance(result.result, dict):
+                        # Extraire seulement les données essentielles
+                        data = result.result.get('data', result.result)
+                        content = str(data) if not isinstance(data, str) else data
+                    else:
+                        content = str(result.result) if result.success else result.error
+
+                    optimized_results.append({
                         "type": "tool_result",
                         "tool_use_id": result.tool_call_id,
-                        "content": str(result.result) if result.success else result.error
-                    } for result, tc in zip(tool_results, response.tool_calls)]
+                        "content": content
+                    })
+
+                conversation_messages.append({
+                    "role": "user",
+                    "content": optimized_results
                 })
             else:
                 # Format OpenAI (Nano et DeepSeek)
@@ -151,10 +166,18 @@ class ToolExecutor:
                 })
 
                 for result, tc in zip(tool_results, response.tool_calls):
+                    # Optimiser le format: envoyer seulement les données essentielles
+                    if result.success and isinstance(result.result, dict):
+                        # Extraire seulement les données, pas les métadonnées
+                        data = result.result.get('data', result.result)
+                        content = str(data) if not isinstance(data, str) else data
+                    else:
+                        content = str(result.result) if result.success else result.error
+
                     conversation_messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": str(result.result) if result.success else result.error
+                        "content": content
                     })
 
         # Si on arrive ici, on a dépassé max_iterations

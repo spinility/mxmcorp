@@ -31,6 +31,7 @@ from cortex.cli.terminal_ui import (
 from cortex.core.llm_client import LLMClient
 from cortex.core.model_router import ModelRouter
 from cortex.core.prompt_engineer import PromptEngineer
+from cortex.core.tool_filter import ToolFilter
 from cortex.tools.tool_executor import ToolExecutor
 from cortex.tools.builtin_tools import get_all_builtin_tools
 from cortex.tools.web_tools import get_all_web_tools
@@ -61,6 +62,7 @@ class CortexCLI:
         self.llm_client = LLMClient()
         self.model_router = ModelRouter()
         self.prompt_engineer = PromptEngineer(self.llm_client)
+        self.tool_filter = ToolFilter()
         self.tool_executor = ToolExecutor(self.llm_client)
 
         # Core managers
@@ -354,14 +356,21 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             print()
 
-            # Step 3: Execute with tools
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Executing with {len(self.available_tools)} tools available...")
+            # Step 3: Filter relevant tools to reduce token costs
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Filtering relevant tools...")
+            filtered_tools = self.tool_filter.filter_tools(description, self.available_tools)
+            print(f"  Selected {self.ui.color(str(len(filtered_tools)), Color.GREEN)} tools (from {len(self.available_tools)} total)")
+            print(f"  Token reduction: {self.ui.color(f'~{100 - (len(filtered_tools) / len(self.available_tools) * 100):.0f}%', Color.BRIGHT_GREEN)}")
+            print()
+
+            # Step 4: Execute with filtered tools
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Calling LLM with filtered tools...")
             print()
 
             response = self.tool_executor.execute_with_tools(
                 messages=messages,
                 tier=selection.tier,
-                tools=self.available_tools,
+                tools=filtered_tools,
                 max_tokens=None,  # Utilise les specs du modèle (128,000 pour nano)
                 temperature=1.0,
                 verbose=True  # Activer verbose pour voir les étapes
