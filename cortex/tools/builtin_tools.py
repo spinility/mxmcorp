@@ -455,69 +455,61 @@ def delete_file(path: str, recursive: bool = False) -> Dict[str, Any]:
 
 @tool(
     name="show_roadmap",
-    description="Display the current roadmap showing pending tasks, completed tasks, and project status. Use this when the user asks to see the roadmap.",
+    description="Display the Cortex system architecture roadmap showing directory structure, modules, agents, departments, tools, and relationships. Use this when the user asks to see the roadmap or system architecture.",
     parameters={
         "type": "object",
         "properties": {},
         "required": []
     },
     category="system",
-    tags=["roadmap", "tasks", "status", "show", "display"]
+    tags=["roadmap", "architecture", "structure", "show", "display"]
 )
 def show_roadmap() -> Dict[str, Any]:
     """
-    Display the current ROADMAP.json file
+    Display the complete Cortex architecture from CORTEX_ARCHITECTURE.md
 
     Returns:
-        Dict with roadmap data
+        Dict with architecture data
     """
     try:
-        roadmap_path = Path("cortex/data/ROADMAP.json")
+        roadmap_path = Path("CORTEX_ARCHITECTURE.md")
 
         if not roadmap_path.exists():
             return {
                 "success": False,
-                "error": "ROADMAP.json not found at cortex/data/ROADMAP.json"
+                "error": "CORTEX_ARCHITECTURE.md not found. Run 'python3 utils/generate_architecture_map.py' to generate it."
             }
 
-        # Read the roadmap file
+        # Read the architecture file
         with open(roadmap_path, 'r', encoding='utf-8') as f:
-            roadmap = json.load(f)
+            architecture_content = f.read()
 
-        # Format summary
-        total_tasks = roadmap.get("total_tasks", 0)
-        updated_at = roadmap.get("updated_at", "Unknown")
-        tasks = roadmap.get("tasks", [])
+        # Extract key sections for summary
+        lines = architecture_content.split('\n')
+        last_updated = "Unknown"
+        for line in lines:
+            if line.startswith('**Last Updated:**'):
+                last_updated = line.split('**Last Updated:**')[1].strip()
+                break
 
-        # Count by status
-        status_counts = {}
-        for task in tasks:
-            status = task.get("status", "unknown")
-            status_counts[status] = status_counts.get(status, 0) + 1
-
-        # Format for display
-        summary = {
-            "total_tasks": total_tasks,
-            "updated_at": updated_at,
-            "status_breakdown": status_counts,
-            "tasks": tasks
-        }
+        # Count sections
+        section_count = architecture_content.count('\n## ')
 
         return {
             "success": True,
-            "data": summary,
-            "message": f"Roadmap loaded: {total_tasks} total tasks, last updated {updated_at}"
+            "data": {
+                "content": architecture_content,
+                "last_updated": last_updated,
+                "sections": section_count,
+                "size_chars": len(architecture_content)
+            },
+            "message": f"Cortex Architecture loaded ({section_count} sections, last updated {last_updated})"
         }
 
-    except json.JSONDecodeError as e:
-        return {
-            "success": False,
-            "error": f"Failed to parse ROADMAP.json: {str(e)}"
-        }
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to read roadmap: {str(e)}"
+            "error": f"Failed to read architecture roadmap: {str(e)}"
         }
 
 
