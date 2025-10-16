@@ -40,7 +40,7 @@ from cortex.tools.pip_tools import get_all_pip_tools
 from cortex.tools.intelligence_tools import get_all_intelligence_tools
 
 # Cortex agents
-from cortex.agents import create_triage_agent, create_tooler_agent, create_communications_agent, create_planner_agent
+from cortex.agents import create_triage_agent, create_tooler_agent, create_communications_agent, create_planner_agent, create_maintenance_agent
 from cortex.agents.context_agent import create_context_agent
 from cortex.agents.smart_router_agent import create_smart_router_agent
 
@@ -76,6 +76,7 @@ class CortexCLI:
         self.planner_agent = create_planner_agent(self.llm_client, self.todo_manager)
         self.context_agent = create_context_agent(self.llm_client)
         self.smart_router = create_smart_router_agent(self.llm_client)
+        self.maintenance_agent = create_maintenance_agent(self.llm_client)
 
         # Current employee handling requests
         self.current_employee = "Cortex"  # Default employee
@@ -221,6 +222,9 @@ class CortexCLI:
 
         elif cmd == "whoami":
             self.cmd_whoami()
+
+        elif cmd == "maintenance" or cmd == "sync":
+            self.cmd_maintenance()
 
         else:
             # Not a recognized command - treat as natural language task
@@ -1002,6 +1006,79 @@ Total Cost: ${sum(self.costs.values()):.6f}
         else:  # viewer
             print(f"  {self.ui.color('✓', Color.GREEN)} View all tasks")
             print(f"  {self.ui.color('✗', Color.RED)} Cannot create or edit tasks")
+
+    def cmd_maintenance(self):
+        """Run system maintenance and sync all contexts"""
+        self.ui.header("🔧 System Maintenance", level=2)
+        print()
+
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Running full maintenance cycle...")
+        print()
+        print("  • Parsing git diff")
+        print("  • Updating file contexts")
+        print("  • Rebuilding dependencies")
+        print("  • Updating roadmap")
+        print("  • Regenerating architecture")
+        print()
+
+        try:
+            result = self.maintenance_agent.run_full_maintenance(include_staged=True)
+
+            if result['success']:
+                self.ui.success("✅ Maintenance completed successfully!")
+                print()
+                print(f"  {self.ui.color('Files processed:', Color.CYAN)} {result.get('files_processed', 0)}")
+                print(f"  {self.ui.color('Contexts updated:', Color.CYAN)} {result.get('contexts_updated', 0)}")
+                print(f"  {self.ui.color('Dependencies updated:', Color.CYAN)} {result.get('dependencies_updated', 0)}")
+                print(f"  {self.ui.color('Roadmap tasks completed:', Color.CYAN)} {result.get('roadmap_tasks_completed', 0)}")
+                print(f"  {self.ui.color('Roadmap tasks created:', Color.CYAN)} {result.get('roadmap_tasks_created', 0)}")
+                print(f"  {self.ui.color('Duration:', Color.CYAN)} {result.get('duration_seconds', 0):.2f}s")
+                print()
+
+                if result.get('breaking_changes'):
+                    print(f"  {self.ui.color('⚠️  Breaking changes detected:', Color.YELLOW)} {len(result['breaking_changes'])}")
+                    for bc in result['breaking_changes'][:5]:
+                        print(f"    • {bc}")
+                    if len(result['breaking_changes']) > 5:
+                        print(f"    ... and {len(result['breaking_changes']) - 5} more")
+                    print()
+
+                if result.get('errors'):
+                    print(f"  {self.ui.color('⚠️  Errors encountered:', Color.YELLOW)} {len(result['errors'])}")
+                    for err in result['errors'][:3]:
+                        print(f"    • {err}")
+                    if len(result['errors']) > 3:
+                        print(f"    ... and {len(result['errors']) - 3} more")
+                    print()
+
+                # Update costs
+                maintenance_cost = result.get('cost', 0.0)
+                if maintenance_cost > 0:
+                    self.total_cost += maintenance_cost
+                    print(f"  {self.ui.color('Cost:', Color.BRIGHT_BLACK)} ${maintenance_cost:.6f}")
+
+            else:
+                self.ui.error("❌ Maintenance failed")
+                print()
+                if result.get('error'):
+                    print(f"  Error: {result['error']}")
+                    print()
+                if result.get('errors'):
+                    print(f"  Errors:")
+                    for err in result['errors'][:3]:
+                        print(f"    • {err}")
+                    print()
+
+        except Exception as e:
+            print()
+            self.ui.error(f"Maintenance failed with exception: {str(e)[:100]}")
+            print()
+
+            # Show traceback in debug mode
+            if os.getenv("CORTEX_DEBUG", "false").lower() == "true":
+                import traceback
+                self.ui.warning("Debug traceback:")
+                traceback.print_exc()
 
 
 def main():
