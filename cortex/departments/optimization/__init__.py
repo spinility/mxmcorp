@@ -9,12 +9,18 @@ Agents:
 - FailureAnalyzer (EXPERT) - Analyse les échecs (TODO)
 - OptimizationRecommender (DIRECTEUR) - Recommande optimisations (TODO)
 
+Composants actifs:
+- OptimizationOrchestrator: Coordonne les optimisations basées sur QC
+- OptimizationKnowledge: Base de connaissances d'optimisation
+
 Consulté AVANT toute action importante
 Enregistre APRÈS chaque action
 """
 
 from cortex.departments.optimization.optimization_knowledge import OptimizationKnowledge
+from cortex.departments.optimization.optimization_orchestrator import OptimizationOrchestrator
 
 __all__ = [
-    'OptimizationKnowledge'
+    'OptimizationKnowledge',
+    'OptimizationOrchestrator'
 ]
