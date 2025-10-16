@@ -369,6 +369,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             # Step 4: Display results
             print()
+
             if response.tool_calls:
                 self.ui.info(f"Tool calls executed: {len(response.tool_calls)}")
                 for i, tc in enumerate(response.tool_calls, 1):

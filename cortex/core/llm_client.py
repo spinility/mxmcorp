@@ -234,7 +234,8 @@ class LLMClient:
             print(f"{'='*60}\n")
 
         # Sauvegarder dans le cache
-        if self.cache:
+        # NOTE: Ne pas cacher les responses avec tool_calls - elles sont uniques et le cache actuel ne stocke pas les tool_calls
+        if self.cache and not response.tool_calls:
             self.cache.set(
                 messages,
                 tier.value,
