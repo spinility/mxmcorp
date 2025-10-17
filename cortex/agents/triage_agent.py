@@ -107,16 +107,20 @@ TU AS 3 ROUTES POSSIBLES:
    → Escalade vers Planner Agent (modèle moyen)
 
 2. ROUTE "direct" (réponse immédiate sans outils):
-   - Conversation simple (salutation, question générale)
-   - Requête d'information simple
-   - Pas d'outils nécessaires
-   → Réponse directe
+   - Conversation simple (salutation, remerciement)
+   - Question de CONNAISSANCE GÉNÉRALE (explique OAuth, c'est quoi Python)
+   - AUCUN besoin d'accéder au système (fichiers, réseau, etc.)
+   → Réponse directe basée uniquement sur connaissances du LLM
 
 3. ROUTE "expert" (besoin d'outils):
-   - Utilise des outils (fichiers, git, web)
+   - VÉRIFIE l'état du système (fichier existe? service actif? valeur dans config?)
+   - MODIFIE le système (créer, supprimer, éditer fichiers)
+   - ACCÈDE à des ressources (git, web, base de données)
    - Analyse ou génération de contenu
-   - Action concrète nécessaire
    → Task Executor avec outils
+
+⚠️ IMPORTANT: "Est-ce que fichier X existe?" = EXPERT (besoin outil file_exists)
+⚠️ IMPORTANT: "C'est quoi OAuth?" = DIRECT (connaissance générale)
 
 Pour ROUTE "expert", évalue needs_context:
 - true: Modification code existant, analyse architecture
@@ -171,20 +175,28 @@ Réponds UNIQUEMENT avec un JSON:
                 'git', 'commit', 'push',
                 'install', 'pip', 'npm',
                 'delete', 'efface', 'remove', 'supprime',
-                'search', 'find', 'cherche', 'trouve'
+                'search', 'find', 'cherche', 'trouve',
+                'existe', 'exists', 'fichier', 'file',  # Vérification fichiers
+                'check', 'vérifie', 'valide', 'test'
             ]
 
-            # Mots-clés pour conversations simples
+            # Mots-clés pour conversations simples (CONNAISSANCE uniquement, pas vérification)
             simple_keywords = [
                 'hello', 'bonjour', 'salut', 'hi',
                 'how are you', 'comment ça va', 'ça va',
+                'thank', 'merci', 'thanks'
+            ]
+
+            # Mots-clés pour questions de connaissance (DIRECT si pas de fichier/système)
+            knowledge_keywords = [
                 'what is', 'qu\'est-ce que', 'c\'est quoi',
-                'explain', 'explique'
+                'explain', 'explique', 'how does', 'comment fonctionne'
             ]
 
             # Détecter le type de requête
             is_planning = any(kw in user_lower for kw in planning_keywords)
             is_simple = any(kw in user_lower for kw in simple_keywords)
+            is_knowledge = any(kw in user_lower for kw in knowledge_keywords)
             needs_action = any(kw in user_lower for kw in action_keywords)
 
             # Priorité 1: Planification
@@ -198,24 +210,35 @@ Réponds UNIQUEMENT avec un JSON:
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
-            # Priorité 2: Conversation simple
-            elif is_simple and not needs_action:
+            # Priorité 2: Action avec tools (AVANT simple, car "file exists" est action)
+            elif needs_action:
+                return {
+                    'route': 'expert',
+                    'confidence': 0.75,
+                    'reason': 'Tool usage required (file check, creation, etc.)',
+                    'needs_context': 'code' in user_lower,
+                    'complexity': 'simple',
+                    'enhanced_request': user_request,
+                    'cost': 0.0
+                }
+            # Priorité 3: Conversation simple (salutation) ou connaissance pure
+            elif is_simple or is_knowledge:
                 return {
                     'route': 'direct',
                     'confidence': 0.7,
-                    'reason': 'Simple conversation detected',
+                    'reason': 'General knowledge question or simple conversation',
                     'needs_context': False,
                     'complexity': 'simple',
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
-            # Priorité 3: Action avec tools
+            # Priorité 4: Par défaut expert
             else:
                 return {
                     'route': 'expert',
                     'confidence': 0.6,
-                    'reason': 'Action or complex analysis needed',
-                    'needs_context': needs_action and 'code' in user_lower,
+                    'reason': 'Complex request or unclear intent',
+                    'needs_context': False,
                     'complexity': 'medium',
                     'enhanced_request': user_request,
                     'cost': 0.0

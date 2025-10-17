@@ -424,13 +424,12 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             # Route 2: DIRECT (conversation simple sans outils)
             if triage_decision['route'] == 'direct':
-                # TODO: Implémenter réponse directe sans Context/Tools
-                print(f"  {self.ui.color('→ Réponse directe (sans outils)', Color.CYAN)}")
-                print()
-                # Pour l'instant, on continue avec le workflow expert
+                # TODO: Implémenter vraiment la route direct avec réponse LLM simple
+                # Pour l'instant, on continue avec le workflow expert silencieusement
+                # Ne PAS afficher de message trompeur!
                 pass
 
-            # Route 3: EXPERT (besoin d'outils)
+            # Route 3: EXPERT (besoin d'outils) - ou DIRECT qui passe par ici temporairement
 
             # Step 3: Context Agent - Only if needed
             context_result = {'context': '', 'metadata': {'context_needed': {'needed': False, 'reason': 'Triage decided direct response', 'confidence': 1.0}, 'cache_hits': [], 'git_diff_included': False, 'total_cost': 0.0}}
