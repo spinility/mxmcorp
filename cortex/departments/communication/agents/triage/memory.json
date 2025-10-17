@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "last_updated": null,
+  "execution_history": [],
+  "learned_patterns": {},
+  "performance_metrics": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "avg_execution_time": 0.0,
+    "total_cost": 0.0
+  },
+  "state": {},
+  "notes": []
+}

@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-10-17T09:24:06.751221",
+  "execution_history": [
+    {
+      "timestamp": "2025-10-17T09:24:06.750748",
+      "request": "Execute harmonization plan",
+      "success": true,
+      "duration": 2.5,
+      "cost": 0.01,
+      "result_summary": "{'success': True, 'actions_executed': 5}"
+    }
+  ],
+  "learned_patterns": {
+    "frequent_file_type": {
+      "first_detected": "2025-10-17T09:24:06.750897",
+      "occurrences": 1,
+      "data": [
+        {
+          "timestamp": "2025-10-17T09:24:06.750901",
+          "data": {
+            "file_type": ".py",
+            "frequency": "high"
+          }
+        }
+      ],
+      "last_detected": "2025-10-17T09:24:06.750900"
+    }
+  },
+  "performance_metrics": {
+    "total_executions": 1,
+    "successful_executions": 1,
+    "failed_executions": 0,
+    "avg_execution_time": 2.5,
+    "total_cost": 0.01
+  },
+  "state": {
+    "last_plan_id": "ADR-123",
+    "active": true
+  },
+  "notes": []
+}
