@@ -764,15 +764,76 @@ IMPORTANT: Be honest about your confidence. If logs are limited or unclear, set 
         """Génère des recommandations d'optimisation"""
         recommendations = []
 
-        # Efficiency recommendations
+        # Efficiency recommendations (intelligent, pas toujours le cache)
         if eff < 20:
-            recommendations.append({
-                'category': 'efficiency',
-                'priority': 'high',
-                'issue': 'High token/cost usage',
-                'suggestion': 'Consider using context caching or tool filtering',
-                'impact': 'Could reduce cost by 30-50%'
-            })
+            tokens_in = request_data.get('tokens_input', 0)
+            tokens_out = request_data.get('tokens_output', 0)
+            cost = request_data.get('cost', 0.0)
+            duration = request_data.get('duration', 0.0)
+
+            # Diagnostiquer la VRAIE cause d'inefficacité
+            total_tokens = tokens_in + tokens_out
+
+            # Cause 1: Trop de tokens input (contexte lourd)
+            if tokens_in > 50000:
+                cache_used = request_data.get('cache_used', False)
+                if not cache_used:
+                    recommendations.append({
+                        'category': 'efficiency',
+                        'priority': 'high',
+                        'issue': f'Very high input tokens ({tokens_in:,})',
+                        'suggestion': 'Enable prompt caching for repeated context',
+                        'impact': 'Could reduce input token cost by 90%'
+                    })
+                else:
+                    recommendations.append({
+                        'category': 'efficiency',
+                        'priority': 'medium',
+                        'issue': f'High input tokens despite caching ({tokens_in:,})',
+                        'suggestion': 'Reduce context size or filter irrelevant data',
+                        'impact': 'Could reduce tokens by 30-50%'
+                    })
+
+            # Cause 2: Trop de tokens output (génération longue)
+            elif tokens_out > 20000:
+                recommendations.append({
+                    'category': 'efficiency',
+                    'priority': 'medium',
+                    'issue': f'Very high output tokens ({tokens_out:,})',
+                    'suggestion': 'Use more concise prompts or set lower max_tokens',
+                    'impact': 'Could reduce output cost significantly'
+                })
+
+            # Cause 3: Coût élevé (mauvais choix de modèle)
+            elif cost > 0.001:
+                tier = request_data.get('tier', 'unknown')
+                recommendations.append({
+                    'category': 'efficiency',
+                    'priority': 'high',
+                    'issue': f'High cost (${cost:.6f}) for tier {tier}',
+                    'suggestion': 'Consider using cheaper tier for this task',
+                    'impact': 'Could reduce cost by 10-100x'
+                })
+
+            # Cause 4: Durée longue (latence réseau ou modèle lent)
+            elif duration > 15:
+                recommendations.append({
+                    'category': 'efficiency',
+                    'priority': 'low',
+                    'issue': f'Slow response time ({duration:.1f}s)',
+                    'suggestion': 'Check network latency or consider faster tier',
+                    'impact': 'Improve user experience'
+                })
+
+            # Cause générique (pas de diagnostic clair)
+            else:
+                recommendations.append({
+                    'category': 'efficiency',
+                    'priority': 'medium',
+                    'issue': 'Overall efficiency below standard',
+                    'suggestion': 'Review tool filtering and prompt optimization',
+                    'impact': 'Could improve cost/performance balance'
+                })
 
         # Quality recommendations
         if qual < 20:
