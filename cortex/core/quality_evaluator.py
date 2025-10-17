@@ -152,6 +152,18 @@ SPECIFIC CHECKS:
 - Are there disclaimers like "I cannot", "I don't know", "need more info"?
 - Is the response too short/vague for the complexity of the task?
 
+⚠️ TEMPORAL VOLATILITY CHECK (CRITICAL):
+- Does the response contain information that could become OUTDATED or INVALID over time?
+- Examples of VOLATILE responses:
+  * "Yes, file X exists" / "File Y is in directory Z" (file could be deleted later)
+  * "The current value is X" (value could change)
+  * "User A has access to B" (permissions could change)
+  * "The system is running" / "Service X is online" (status could change)
+  * "There are N items in the database" (count could change)
+- If response contains VOLATILE information, flag it as an ISSUE with severity "temporal_volatility"
+- Volatile responses should LOSE 1-2 points depending on severity
+- Suggest adding timestamps or disclaimers like "as of [date/time]" or "this may have changed"
+
 Return your evaluation as JSON in this EXACT format:
 {{
   "score": <float 0-10>,
