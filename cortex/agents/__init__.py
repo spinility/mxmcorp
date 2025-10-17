@@ -13,17 +13,22 @@ Agents disponibles:
 - QualityControl: Analyse et évalue la qualité du traitement des requêtes
 """
 
-from cortex.agents.triage_agent import TriageAgent, create_triage_agent
-from cortex.agents.quick_actions_agent import QuickActionsAgent, create_quick_actions_agent
+# Import from new department structure
+from cortex.departments.communication.agents.triage import TriageAgent, create_triage_agent
+from cortex.departments.execution.agents.quick_actions import QuickActionsAgent, create_quick_actions_agent
+from cortex.departments.communication.agents.communications import CommunicationsAgent, create_communications_agent
+from cortex.departments.execution.agents.planner import PlannerAgent, create_planner_agent
+from cortex.departments.maintenance.agents.maintenance import MaintenanceAgent, create_maintenance_agent
+from cortex.departments.maintenance.agents.harmonizer import HarmonizationAgent, create_harmonization_agent
+from cortex.departments.intelligence.agents.watcher import GitWatcherAgent, create_git_watcher_agent
+from cortex.departments.optimization.agents.tester import TesterAgent, create_tester_agent
+
+# Import from old structure (agents not yet migrated with memory integration)
 from cortex.agents.tooler_agent import ToolerAgent, create_tooler_agent
-from cortex.agents.communications_agent import CommunicationsAgent, create_communications_agent
-from cortex.agents.planner_agent import PlannerAgent, create_planner_agent
 from cortex.agents.smart_router_agent import SmartRouterAgent, create_smart_router_agent
-from cortex.agents.maintenance_agent import MaintenanceAgent, create_maintenance_agent
-from cortex.agents.harmonization_agent import HarmonizationAgent, create_harmonization_agent
 from cortex.agents.quality_control_agent import QualityControlAgent, create_quality_control_agent
-from cortex.agents.git_watcher_agent import GitWatcherAgent, create_git_watcher_agent
 from cortex.agents.archivist_agent import ArchivistAgent, create_archivist_agent
+from cortex.agents.context_agent import ContextAgent, create_context_agent
 
 __all__ = [
     'TriageAgent',
@@ -37,6 +42,8 @@ __all__ = [
     'QualityControlAgent',
     'GitWatcherAgent',
     'ArchivistAgent',
+    'ContextAgent',
+    'TesterAgent',
     'create_triage_agent',
     'create_quick_actions_agent',
     'create_tooler_agent',
@@ -47,5 +54,7 @@ __all__ = [
     'create_harmonization_agent',
     'create_quality_control_agent',
     'create_git_watcher_agent',
-    'create_archivist_agent'
+    'create_archivist_agent',
+    'create_context_agent',
+    'create_tester_agent'
 ]

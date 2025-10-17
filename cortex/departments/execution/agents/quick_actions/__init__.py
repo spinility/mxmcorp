@@ -1,9 +1,7 @@
 """
-QuickActionsAgent - Atomic Operations
-
-Auto-generated import from cortex.agents.quick_actions_agent
+QuickActionsAgent - Quick Actions
 """
 
-from cortex.agents.quick_actions_agent import QuickActionsAgent, create_quick_actions_agent
+from .quick_actions_agent import QuickActionsAgent, create_quick_actions_agent
 
 __all__ = ['QuickActionsAgent', 'create_quick_actions_agent']

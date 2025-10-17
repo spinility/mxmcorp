@@ -1,9 +1,7 @@
 """
-CommunicationsAgent - User Communications
-
-Auto-generated import from cortex.agents.communications_agent
+CommunicationsAgent - User Communication
 """
 
-from cortex.agents.communications_agent import CommunicationsAgent, create_communications_agent
+from .communications_agent import CommunicationsAgent, create_communications_agent
 
 __all__ = ['CommunicationsAgent', 'create_communications_agent']

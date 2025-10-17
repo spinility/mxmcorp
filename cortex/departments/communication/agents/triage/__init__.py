@@ -1,9 +1,7 @@
 """
-TriageAgent - Request Routing
-
-Auto-generated import from cortex.agents.triage_agent
+TriageAgent - Request Triage
 """
 
-from cortex.agents.triage_agent import TriageAgent, create_triage_agent
+from .triage_agent import TriageAgent, create_triage_agent
 
 __all__ = ['TriageAgent', 'create_triage_agent']
