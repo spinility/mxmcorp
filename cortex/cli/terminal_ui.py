@@ -429,6 +429,7 @@ def show_help(ui: Optional[TerminalUI] = None):
         ("theme list", "List all available themes"),
         ("theme <name>", "Change theme (dark/light/matrix/ocean/sunset/cyberpunk)"),
         ("expand <id> [mode]", "Expand/collapse content (modes: preview/summary/full)"),
+        ("Ctrl+E", "Quick expand last collapsible content (keyboard shortcut)"),
         ("notifications", "Show notification history"),
     ]
 

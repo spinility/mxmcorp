@@ -41,6 +41,7 @@ from cortex.cli.advanced_ui import (
     MultiStepProgress,
     NotificationType
 )
+from cortex.cli.interactive_prompt import InteractivePrompt
 
 # Cortex core components
 from cortex.core.llm_client import LLMClient
@@ -84,6 +85,10 @@ class CortexCLI:
         self.theme_manager = get_theme_manager()
         self.notification_manager = get_notification_manager()
         self.advanced_collapsible = get_advanced_collapsible_manager()
+
+        # Interactive prompt with Ctrl+E support
+        self.interactive_prompt = InteractivePrompt(expand_callback=self._handle_ctrl_e)
+        self.last_collapsible_id = None
 
         # Real LLM components
         self.llm_client = LLMClient()
@@ -171,9 +176,15 @@ class CortexCLI:
         # Main loop
         while self.running:
             try:
-                # Prompt
+                # Prompt with Ctrl+E support
                 prompt = f"{self.ui.color('cortex', Color.CYAN, bold=True)} {self.ui.color('❯', Color.BRIGHT_BLUE)} "
-                command = input(prompt).strip()
+                command = self.interactive_prompt.prompt(prompt).strip()
+
+                # Handle special commands
+                if command == '__expand__':
+                    # Ctrl+E was pressed
+                    self._handle_ctrl_e()
+                    continue
 
                 if not command:
                     continue
@@ -512,12 +523,18 @@ Total Cost: ${sum(self.costs.values()):.6f}
                                 print(f"   Data ({len(data)} items):")
                                 # Use collapsible for long lists
                                 data_text = '\n'.join([f"     {j}. {str(item)}" for j, item in enumerate(data, 1)])
-                                display_collapsible(data_text, title=None, max_lines=10)
+                                content_id = display_collapsible(data_text, title=None, max_lines=10)
+                                if content_id is not None:
+                                    self.last_collapsible_id = content_id
+                                    self.interactive_prompt.set_last_collapsible_id(content_id)
                             else:
                                 data_str = str(data)
                                 if len(data_str) > 500:
                                     # Use collapsible for long data
-                                    display_collapsible(data_str, title="   Data:", max_lines=10)
+                                    content_id = display_collapsible(data_str, title="   Data:", max_lines=10)
+                                    if content_id is not None:
+                                        self.last_collapsible_id = content_id
+                                        self.interactive_prompt.set_last_collapsible_id(content_id)
                                 else:
                                     print(f"   Data: {data_str}")
 
@@ -1556,6 +1573,22 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
         print()
         self.notification_manager.show_all()
+
+    def _handle_ctrl_e(self):
+        """Handle Ctrl+E keyboard shortcut - expand last collapsible content"""
+        if self.last_collapsible_id is None:
+            print()
+            self.ui.info("No collapsible content to expand")
+            self.ui.info("💡 Tip: Collapsible content appears when output is longer than 20 lines")
+            print()
+            return
+
+        print()
+        self.ui.info(f"Expanding content ID {self.last_collapsible_id}...")
+        print()
+
+        # Try to expand
+        self.cmd_expand(str(self.last_collapsible_id))
 
     def cmd_optimize(self):
         """Process optimization queue"""

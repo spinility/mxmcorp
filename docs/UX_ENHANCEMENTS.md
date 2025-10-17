@@ -467,16 +467,61 @@ Line 100
 
 ---
 
+## 8. ⌨️ Keyboard Shortcut Ctrl+E
+
+Quick keyboard shortcut for instant content expansion.
+
+**Feature:**
+- Press `Ctrl+E` to instantly expand the last collapsible content
+- No need to type `expand <id>` - just one keystroke!
+- Auto-tracked last collapsible ID
+
+**How it works:**
+1. When long content is collapsed, its ID is tracked automatically
+2. Press `Ctrl+E` at the prompt to expand it instantly
+3. Works from anywhere in the CLI
+
+**Example:**
+```bash
+cortex ❯ task list all Python files
+
+Tool Results:
+Data (150 items):
+     1. file1.py
+     2. file2.py
+     ...
+     20. file20.py
+
+... 130 more lines. Press Ctrl+E to expand (ID: 0)
+
+cortex ❯ [Press Ctrl+E]
+
+ℹ Expanding content ID 0...
+
+Expanded content (ID: 0):
+     1. file1.py
+     2. file2.py
+     ...
+     150. file150.py
+```
+
+**Benefits:**
+- ⚡ Lightning-fast expansion with one keystroke
+- 🎯 Automatically tracks the most recent collapsible content
+- 💪 More ergonomic than typing commands
+
+---
+
 ## Future Enhancements
 
 Planned improvements:
 
-- [ ] Keyboard shortcut `Ctrl+E` (requires prompt_toolkit integration)
 - [ ] Real-time notification updates
 - [ ] Interactive theme picker
 - [ ] Custom color customization
 - [ ] Exportable notification log
 - [ ] Notification filtering/search
+- [ ] More keyboard shortcuts (Ctrl+T for theme toggle, etc.)
 
 ---
 
