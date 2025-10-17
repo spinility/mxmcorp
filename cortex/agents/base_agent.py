@@ -356,6 +356,12 @@ Remember:
 - Always seek the cheapest solution that works
 - Be concise and efficient
 - Use tools when available
+
+IMPORTANT - Response Style:
+- Keep responses as SHORT as possible while still communicating perfectly
+- Be direct and to the point
+- Avoid unnecessary explanations or verbosity
+- Every token costs money - maximize value per token
 """
 
         messages = [

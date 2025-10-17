@@ -32,7 +32,7 @@ models:
     context_window: 200000
     cost_per_1m_input: 3.0
     cost_per_1m_output: 15.0
-    max_tokens: 8192
+    max_tokens: 64000  # Maximum output enforced by Anthropic API
     name: claude-sonnet-4-5
     provider: anthropic
     speed: standard
@@ -43,10 +43,10 @@ models:
     - situations ambiguës
     - créativité maximale
   deepseek:
-    context_window: 65536
+    context_window: 128000
     cost_per_1m_input: 0.55
     cost_per_1m_output: 2.19
-    max_tokens: 8192
+    max_tokens: 64000  # Maximum output enforced by DeepSeek API
     name: deepseek-reasoner
     provider: deepseek
     speed: rapide
@@ -60,7 +60,7 @@ models:
     context_window: 400000
     cost_per_1m_input: 0.5
     cost_per_1m_output: 1.5
-    max_tokens: 128000
+    max_tokens: 128000  # Maximum output enforced by OpenAI API
     name: gpt-5-nano
     provider: openai
     speed: ultra-rapide

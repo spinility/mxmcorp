@@ -24,18 +24,19 @@ class AutoTaskManager:
     Workflow:
     1. Scan specified files for task patterns
     2. Parse tasks with priority/tier inference
-    3. Create non-duplicate tasks in TodoDB
-    4. Return summary of tasks created
+    3. Show list and ask for confirmation
+    4. Create confirmed tasks in TodoDB
+    5. Return summary of tasks created
     """
 
-    def __init__(self, todo_manager):
+    def __init__(self, task_manager):
         """
         Initialize AutoTaskManager
 
         Args:
-            todo_manager: TodoDB manager instance
+            task_manager: TaskManager instance (from task_management_tools.py)
         """
-        self.todo_manager = todo_manager
+        self.task_manager = task_manager
         self.scanned_files: List[Path] = []
         self.created_tasks: List[Dict] = []
 
@@ -73,38 +74,129 @@ class AutoTaskManager:
                 self.scanned_files.append(file_path)
 
         print()
-        print(f"  ✓ Found {len(tasks_found)} tasks")
+        print(f"  ✓ Trouvé {len(tasks_found)} tâche(s)")
         print()
 
-        # Create tasks in TodoDB
-        created_count = 0
+        # Filtrer les doublons d'abord
+        unique_tasks = []
         duplicate_count = 0
 
         for task_data in tasks_found:
-            # Check if task already exists
             if self._task_exists(task_data['description']):
                 duplicate_count += 1
-                continue
+            else:
+                unique_tasks.append(task_data)
 
-            # Create task
+        if duplicate_count > 0:
+            print(f"  ℹ️  Ignoré {duplicate_count} doublon(s)")
+            print()
+
+        if not unique_tasks:
+            print(f"  ℹ️  Aucune nouvelle tâche à créer")
+            return {
+                'success': True,
+                'files_scanned': len(self.scanned_files),
+                'tasks_found': len(tasks_found),
+                'tasks_created': 0,
+                'tasks_skipped_duplicate': duplicate_count,
+                'created_tasks': []
+            }
+
+        # Afficher la liste des tâches avec numérotation
+        print(f"  📋 Tâches à créer ({len(unique_tasks)}):")
+        print()
+        for i, task in enumerate(unique_tasks, 1):
+            tier_emoji = "🔵" if task['tier'] == 'nano' else ("🟡" if task['tier'] == 'deepseek' else "🔴")
+            print(f"    {i}. {tier_emoji} [{task['tier'].upper()}] {task['description']}")
+            print(f"       📄 Source: {Path(task['source']).name}")
+            print()
+
+        # Demander confirmation
+        print(f"  Créer ces {len(unique_tasks)} tâche(s)? (y/n/numéros séparés par virgules)")
+        print(f"  Exemples: 'y' (tout), 'n' (rien), '1,3,5' (tâches spécifiques)")
+        print()
+
+        try:
+            response = input("  → Votre choix: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            print("  ℹ️  Annulé par l'utilisateur")
+            return {
+                'success': True,
+                'files_scanned': len(self.scanned_files),
+                'tasks_found': len(tasks_found),
+                'tasks_created': 0,
+                'tasks_skipped_duplicate': duplicate_count,
+                'created_tasks': []
+            }
+
+        # Parser la réponse
+        tasks_to_create = []
+
+        if response == 'y' or response == 'yes':
+            # Créer toutes les tâches
+            tasks_to_create = unique_tasks
+        elif response == 'n' or response == 'no':
+            # Ne rien créer
+            print()
+            print("  ℹ️  Aucune tâche créée")
+            return {
+                'success': True,
+                'files_scanned': len(self.scanned_files),
+                'tasks_found': len(tasks_found),
+                'tasks_created': 0,
+                'tasks_skipped_duplicate': duplicate_count,
+                'created_tasks': []
+            }
+        else:
+            # Parser les numéros
             try:
-                task_id = self.todo_manager.create_task(
+                indices = [int(x.strip()) for x in response.split(',')]
+                for idx in indices:
+                    if 1 <= idx <= len(unique_tasks):
+                        tasks_to_create.append(unique_tasks[idx - 1])
+            except ValueError:
+                print()
+                print("  ⚠️  Format invalide, aucune tâche créée")
+                return {
+                    'success': True,
+                    'files_scanned': len(self.scanned_files),
+                    'tasks_found': len(tasks_found),
+                    'tasks_created': 0,
+                    'tasks_skipped_duplicate': duplicate_count,
+                    'created_tasks': []
+                }
+
+        print()
+        print(f"  ⏳ Création de {len(tasks_to_create)} tâche(s)...")
+        print()
+
+        # Créer les tâches sélectionnées
+        created_count = 0
+
+        for task_data in tasks_to_create:
+            try:
+                result = self.task_manager.create_task(
                     description=task_data['description'],
                     context=task_data['context'],
-                    min_tier=task_data['tier']
+                    min_tier=task_data['tier'],
+                    priority=5,  # Default priority
+                    source_file=task_data['source'],
+                    source_line=task_data.get('line')
                 )
 
-                if task_id:
+                if result['success']:
                     created_count += 1
                     self.created_tasks.append({
-                        'id': task_id,
+                        'id': result['task_id'],
                         'description': task_data['description'],
                         'tier': task_data['tier'],
                         'source': task_data['source']
                     })
+                    print(f"    ✓ Tâche #{result['task_id']} créée")
 
             except Exception as e:
-                print(f"  ⚠️  Failed to create task: {task_data['description'][:50]}... - {str(e)}")
+                print(f"    ⚠️  Échec: {task_data['description'][:50]}... - {str(e)}")
 
         return {
             'success': True,
@@ -228,15 +320,20 @@ class AutoTaskManager:
             True if task exists
         """
         try:
-            all_tasks = self.todo_manager.get_all_tasks()
+            result = self.task_manager.list_tasks(status='pending', limit=500)
+
+            if not result['success']:
+                return False
 
             # Check for exact or very similar descriptions
-            for task in all_tasks:
-                if task.description.lower().strip() == description.lower().strip():
+            for task in result['tasks']:
+                task_desc = task.get('description', '')
+
+                if task_desc.lower().strip() == description.lower().strip():
                     return True
 
                 # Check for 80% similarity
-                similarity = self._similarity_score(task.description, description)
+                similarity = self._similarity_score(task_desc, description)
                 if similarity > 0.8:
                     return True
 
@@ -294,25 +391,32 @@ if __name__ == "__main__":
     print("Testing AutoTaskManager...")
     print()
 
-    # Mock todo manager
-    class MockTodoManager:
+    # Mock task manager
+    class MockTaskManager:
         def __init__(self):
             self.tasks = []
 
-        def create_task(self, description, context, min_tier):
-            task_id = len(self.tasks)
+        def create_task(self, description, context, min_tier, priority=5, source_file=None, source_line=None):
+            task_id = len(self.tasks) + 1
             self.tasks.append({
                 'id': task_id,
                 'description': description,
                 'context': context,
-                'tier': min_tier
+                'min_tier': min_tier,
+                'priority': priority,
+                'source_file': source_file,
+                'source_line': source_line
             })
-            return task_id
+            return {'success': True, 'task_id': task_id}
 
-        def get_all_tasks(self):
-            return [type('obj', (object,), {'description': t['description']})() for t in self.tasks]
+        def list_tasks(self, status='pending', limit=500):
+            return {
+                'success': True,
+                'tasks': [{'description': t['description']} for t in self.tasks],
+                'count': len(self.tasks)
+            }
 
-    mock_manager = MockTodoManager()
+    mock_manager = MockTaskManager()
     auto_mgr = AutoTaskManager(mock_manager)
 
     # Test scan

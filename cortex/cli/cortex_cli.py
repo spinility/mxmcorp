@@ -105,9 +105,9 @@ class CortexCLI:
         self.conversation_manager = create_conversation_manager(self.llm_client)
 
         # Self-management tools
-        self.auto_task_manager = AutoTaskManager(self.todo_manager)
-        self.file_cleanup_manager = FileCleanupManager()
         self.task_manager = TaskManager()
+        self.auto_task_manager = AutoTaskManager(self.task_manager)
+        self.file_cleanup_manager = FileCleanupManager()
 
         # Specialized agents
         self.triage_agent = create_triage_agent(self.llm_client)
@@ -182,14 +182,15 @@ class CortexCLI:
         print()
 
         # STARTUP: Auto-scan documentation for tasks
-        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Scanning documentation for tasks...")
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Analyse de la documentation pour tâches...")
+        print()
         try:
             scan_result = self.auto_task_manager.scan_and_create_tasks()
             if scan_result['success'] and scan_result['tasks_created'] > 0:
-                print(f"  {self.ui.color('✓', Color.GREEN)} Created {scan_result['tasks_created']} new tasks from documentation")
+                print(f"  {self.ui.color('✓', Color.GREEN)} {scan_result['tasks_created']} tâche(s) créée(s) depuis la documentation")
             print()
         except Exception as e:
-            print(f"  {self.ui.color('⚠️', Color.YELLOW)} Task scan failed: {str(e)[:50]}")
+            print(f"  {self.ui.color('⚠️', Color.YELLOW)} Échec du scan: {str(e)[:50]}")
             print()
 
         # Main loop
@@ -349,8 +350,6 @@ class CortexCLI:
 
         else:
             # Not a recognized command - treat as natural language task
-            self.ui.info("Treating input as natural language task...")
-            print()
             self.cmd_task(command)
 
         print()
@@ -389,17 +388,11 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
     def cmd_task(self, description: str):
         """Execute a task with real LLM and tools"""
-        self.ui.header(f"Executing Task", level=2)
-
-        # Display user message with VERY visible styling
-        user_msg_box = f"""
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ 👤 USER REQUEST                                                              ┃
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃ {description:<76s} ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-        """.strip()
-        print(self.ui.color(user_msg_box, Color.BRIGHT_YELLOW, bold=True))
+        # Display user request in bold
+        print()
+        print(self.ui.color(f"┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓", Color.BRIGHT_BLUE))
+        print(self.ui.color(f"┃ {description:<76s} ┃", Color.BRIGHT_YELLOW, bold=True))
+        print(self.ui.color(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛", Color.BRIGHT_BLUE))
         print()
 
         # Add user message to conversation manager
@@ -411,27 +404,27 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
         try:
             # Step 0: Check if this is a planning request
-            with LoadingSpinner("Analyzing request type...") as spinner:
+            with LoadingSpinner("👤 Planner Agent - Détection de planification") as spinner:
                 is_planning, confidence = self.planner_agent.is_planning_request(description)
 
             if is_planning and confidence > 0.6:
-                print(f"  {self.ui.color('✓ Planning detected!', Color.GREEN)} (confidence: {confidence:.2f})")
+                print(f"  {self.ui.color('✓ Planification détectée!', Color.GREEN)} (confiance: {confidence:.2f})")
                 print()
                 self._handle_planning_request(description)
                 return
 
-            print(f"  {self.ui.color('→ Direct execution', Color.CYAN)} (planning confidence: {confidence:.2f})")
+            print(f"  {self.ui.color('→ Exécution directe', Color.CYAN)} (confiance planification: {confidence:.2f})")
             print()
 
             # Step 1: Model selection
             selection = self.model_router.select_model(description)
 
             # Step 2: Triage - Decide if we need Context Agent or can respond directly
-            with LoadingSpinner(f"Triage Agent ({selection.model_name}) analyzing...") as spinner:
+            with LoadingSpinner(f"👤 Triage Agent - Routage ({selection.model_name})") as spinner:
                 triage_decision = self.triage_agent.triage_request(description)
 
-            print(f"  {self.ui.color('✓ Route:', Color.GREEN)} {self.ui.color(triage_decision['route'].upper(), Color.CYAN)} (confidence: {triage_decision['confidence']:.2f})")
-            print(f"  {self.ui.color('Reason:', Color.BRIGHT_BLACK)} {triage_decision['reason']}")
+            print(f"  {self.ui.color('✓ Route:', Color.GREEN)} {self.ui.color(triage_decision['route'].upper(), Color.CYAN)} (confiance: {triage_decision['confidence']:.2f})")
+            print(f"  {self.ui.color('Raison:', Color.BRIGHT_BLACK)} {triage_decision['reason']}")
             print()
 
             # Update costs
@@ -441,10 +434,8 @@ Total Cost: ${sum(self.costs.values()):.6f}
             context_result = {'context': '', 'metadata': {'context_needed': {'needed': False, 'reason': 'Triage decided direct response', 'confidence': 1.0}, 'cache_hits': [], 'git_diff_included': False, 'total_cost': 0.0}}
 
             if triage_decision['route'] == 'expert' and triage_decision.get('needs_context', True):
-                self._show_employee_section(f"Context Agent ({selection.model_name})", "Preparing optimized context...")
                 print()
-
-                with LoadingSpinner("Loading context from codebase...") as spinner:
+                with LoadingSpinner(f"👤 Context Agent - Contextualisation ({selection.model_name})") as spinner:
                     context_result = self.context_agent.prepare_context_for_request(
                         user_request=description,
                         target_tier=selection.tier
@@ -467,7 +458,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 print()
 
             # Step 2: Build optimized prompt with dynamic tool context
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Building optimized prompt for {selection.tier.value}...")
+            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Construction du prompt optimisé...")
             system_prompt = self.prompt_engineer.build_agent_prompt(
                 tier=selection.tier,
                 user_request=description,
@@ -494,16 +485,13 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             print()
 
-            # Step 3: Filter relevant tools to reduce token costs
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Filtering relevant tools...")
+            # Step 3: Filter relevant tools silently
             filtered_tools = self.tool_filter.filter_tools(description, self.available_tools)
-            print(f"  Selected {self.ui.color(str(len(filtered_tools)), Color.GREEN)} tools (from {len(self.available_tools)} total)")
-            print(f"  Token reduction: {self.ui.color(f'~{100 - (len(filtered_tools) / len(self.available_tools) * 100):.0f}%', Color.BRIGHT_GREEN)}")
-            print()
 
             # Step 4: Execute with filtered tools
             print()
-            with LoadingSpinner(f"🤖 {selection.model_name} processing your request...") as spinner:
+            # Afficher le rôle métier de l'agent (pas le nom du modèle)
+            with LoadingSpinner(f"👤 Task Executor - Exécution ({selection.model_name})") as spinner:
                 response = self.tool_executor.execute_with_tools(
                     messages=messages,
                     tier=selection.tier,
@@ -658,7 +646,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
             )
 
             # Success message
-            self.ui.success(f"Task completed! Cost: ${response.cost:.6f} | Tokens: {response.tokens_input + response.tokens_output}")
+            self.ui.success(f"✓ Tâche complétée! Coût: ${response.cost:.6f} | Tokens: {response.tokens_input + response.tokens_output}")
 
         except Exception as e:
             print()
@@ -689,6 +677,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
     def _run_quality_control(self, description: str, response: Any, selection: Any, duration: float):
         """
         Run automatic quality control after task completion
+        Affiche UNIQUEMENT les problèmes à corriger et crée des tâches automatiquement
 
         Args:
             description: User request
@@ -697,12 +686,6 @@ Total Cost: ${sum(self.costs.values()):.6f}
             duration: Task duration in seconds
         """
         try:
-            print()
-            print(self.ui.color("━" * 80, Color.CYAN))
-            print(f"{self.ui.color('📊 QUALITY CONTROL', Color.BRIGHT_MAGENTA, bold=True)} - Analyzing request quality...")
-            print(self.ui.color("━" * 80, Color.CYAN))
-            print()
-
             # Build request data for QC
             request_data = {
                 'user_request': description,
@@ -721,47 +704,53 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             if qc_result['success']:
                 score = qc_result['total_score']
-                grade = qc_result['grade']
 
-                # Determine color based on score
-                score_color = Color.BRIGHT_GREEN if score >= 80 else (Color.YELLOW if score >= 60 else Color.RED)
+                # Ne rien afficher si score >= 85 (qualité excellente)
+                if score >= 85:
+                    return
 
-                print(f"{self.ui.color('✓', Color.GREEN)} Quality analysis complete!")
-                print()
-                print(f"  {self.ui.color('Overall Score:', Color.CYAN)} {self.ui.color(f'{score:.1f}/100', score_color, bold=True)} ({self.ui.color(grade, score_color, bold=True)})")
-
-                # Show dimension scores
-                scores = qc_result['scores']
-                print(f"  {self.ui.color('Breakdown:', Color.BRIGHT_BLACK)}")
-                print(f"    • Efficiency: {scores['efficiency']:.1f}/25")
-                print(f"    • Quality: {scores['quality']:.1f}/25")
-                print(f"    • Model Choice: {scores['model_choice']:.1f}/20")
-                print(f"    • Tool Usage: {scores['tool_usage']:.1f}/20")
-                print(f"    • User Experience: {scores['user_experience']:.1f}/10")
-                print()
-
-                # Show recommendations (top 3)
+                # Afficher uniquement si problèmes détectés
                 recommendations = qc_result.get('recommendations', [])
+
                 if recommendations:
-                    print(f"  {self.ui.color('💡 Recommendations:', Color.YELLOW)} {len(recommendations)} optimization opportunities")
-                    for i, rec in enumerate(recommendations[:3], 1):
-                        priority_color = Color.RED if rec['priority'] == 'high' else (Color.YELLOW if rec['priority'] == 'medium' else Color.GREEN)
-                        print(f"    {i}. [{self.ui.color(rec['priority'].upper(), priority_color)}] {rec['suggestion']}")
-                    if len(recommendations) > 3:
-                        print(f"    ... and {len(recommendations) - 3} more")
+                    print()
+                    print(self.ui.color("━" * 80, Color.YELLOW))
+                    print(f"{self.ui.color('⚠️  QUALITY CONTROL', Color.YELLOW, bold=True)} - Problèmes détectés (Score: {score:.0f}/100)")
+                    print(self.ui.color("━" * 80, Color.YELLOW))
                     print()
 
-                print(f"  {self.ui.color('→', Color.BRIGHT_BLACK)} Recommendations saved to optimization queue")
-                print()
+                    # Afficher uniquement les problèmes à corriger (high/medium priority)
+                    critical_recs = [r for r in recommendations if r['priority'] in ['high', 'medium']]
 
-            else:
-                print(f"{self.ui.color('⚠️', Color.YELLOW)} QC analysis had issues: {qc_result.get('error', 'Unknown error')}")
-                print()
+                    if critical_recs:
+                        print(f"  {self.ui.color('📋 Problèmes à corriger:', Color.YELLOW)}")
+                        for i, rec in enumerate(critical_recs, 1):
+                            priority_color = Color.RED if rec['priority'] == 'high' else Color.YELLOW
+                            priority_text = "CRITIQUE" if rec['priority'] == 'high' else "MOYEN"
+                            print(f"    {i}. [{self.ui.color(priority_text, priority_color)}] {rec['suggestion']}")
+                        print()
 
-        except Exception as e:
-            # QC failure should not break the main workflow
-            print(f"{self.ui.color('⚠️', Color.YELLOW)} QC analysis failed: {str(e)[:100]}")
-            print()
+                        # Créer automatiquement des tâches pour les problèmes critiques
+                        high_priority_recs = [r for r in recommendations if r['priority'] == 'high']
+                        if high_priority_recs and self.task_manager:
+                            print(f"  {self.ui.color('✓', Color.GREEN)} Création de {len(high_priority_recs)} tâche(s) d'optimisation...")
+                            for rec in high_priority_recs:
+                                try:
+                                    self.task_manager.create_task(
+                                        description=f"QC: {rec['suggestion']}",
+                                        context=f"Issue: {rec['issue']}\nImpact: {rec.get('impact', 'N/A')}",
+                                        priority=1,  # 1 = urgent (high priority)
+                                        min_tier='nano',  # Optimizations are usually simple
+                                        category='optimization',
+                                        tags=['qc', 'auto-generated']
+                                    )
+                                except Exception:
+                                    pass  # Silently fail if task creation fails
+                            print()
+
+        except Exception:
+            # QC failure should not break the main workflow - fail silently
+            pass
 
     def _handle_tooler_request(self, response_content: str, user_request: str):
         """
@@ -786,8 +775,8 @@ Total Cost: ${sum(self.costs.values()):.6f}
         print()
 
         # Step 0: SMART ROUTING - Check if existing department can handle this
-        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Smart Router analyzing request...")
-        print(f"  Capability needed: {self.ui.color(capability_needed, Color.YELLOW)}")
+        print(f"{self.ui.color('👤 Smart Router - Routage départements', Color.BRIGHT_CYAN)}")
+        print(f"  Capacité nécessaire: {self.ui.color(capability_needed, Color.YELLOW)}")
         print()
 
         tool_names = [tool.name for tool in self.available_tools]
@@ -845,7 +834,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
             return
 
         # Step 1: Only call Tooler if no department matches
-        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} No existing department found - calling Tooler...")
+        print(f"{self.ui.color('👤 Tooler Agent - Recherche d\'outils', Color.BRIGHT_CYAN)}")
         print()
 
         try:
@@ -861,11 +850,12 @@ Total Cost: ${sum(self.costs.values()):.6f}
             print()
 
             # Step 2: Communications recommendation
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Communications crafting recommendation...")
+            print(f"{self.ui.color('👤 Communications Agent - Recommandations', Color.BRIGHT_CYAN)}")
             print()
 
-            comm_request = self.tooler_agent.create_communication_request(research_results)
-            recommendation = self.communications_agent.craft_recommendation(comm_request)
+            with LoadingSpinner("Création de recommandations...") as spinner:
+                comm_request = self.tooler_agent.create_communication_request(research_results)
+                recommendation = self.communications_agent.craft_recommendation(comm_request)
 
             # Display recommendation
             print(self.ui.color("━" * 80, Color.CYAN))
@@ -1092,7 +1082,8 @@ Total Cost: ${sum(self.costs.values()):.6f}
         Args:
             description: Planning request from user
         """
-        self._show_employee_section("Planner", "Creating structured plan...")
+        print()
+        print(f"{self.ui.color('👤 Planner Agent - Création de plan', Color.BRIGHT_CYAN)}")
         print()
 
         # Get context from conversation manager
@@ -1100,8 +1091,8 @@ Total Cost: ${sum(self.costs.values()):.6f}
         context_text = "\n".join([f"{msg['role']}: {msg['content'][:200]}" for msg in context_messages])
 
         # Create plan
-        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Analyzing request and creating tasks...")
-        plan_result = self.planner_agent.create_plan(description, context_text)
+        with LoadingSpinner("Analyse et création de tâches...") as spinner:
+            plan_result = self.planner_agent.create_plan(description, context_text)
 
         if not plan_result['success']:
             self.ui.error(f"Planning failed: {plan_result['error']}")

@@ -134,16 +134,23 @@ Réponds UNIQUEMENT avec un JSON:
             response = self.llm_client.complete(
                 messages=[{"role": "user", "content": detection_prompt}],
                 tier=ModelTier.NANO,  # Rapide et économique
-                max_tokens=500,  # Increased from 200 to prevent JSON truncation
+                max_tokens=5000,  # Large marge pour éviter toute troncature JSON
                 temperature=1.0  # NANO model requires temperature=1 (default)
             )
 
             # Parser la réponse JSON
-            result = json.loads(response.content.strip())
+            content = response.content.strip()
+
+            # Vérifier si la réponse a été tronquée
+            if response.finish_reason == "length":
+                # Réponse tronquée - utiliser fallback
+                raise json.JSONDecodeError("Response truncated", content, 0)
+
+            result = json.loads(content)
             return result['is_planning'], result['confidence']
 
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"⚠️  Error in planning detection (JSON parsing failed): {e}")
+            # Fallback silencieux sans afficher l'erreur
             # Fallback intelligent avec détection de "show/display"
             user_lower = user_request.lower()
 
