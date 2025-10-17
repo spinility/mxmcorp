@@ -26,6 +26,12 @@ from cortex.cli.terminal_ui import (
     show_cost_summary,
     show_help
 )
+from cortex.cli.display_helpers import (
+    LoadingSpinner,
+    render_markdown,
+    display_collapsible,
+    get_collapsible_manager
+)
 
 # Cortex core components
 from cortex.core.llm_client import LLMClient
@@ -250,6 +256,14 @@ class CortexCLI:
         elif cmd == "optimize":
             self.cmd_optimize()
 
+        elif cmd == "expand" or cmd == "e":
+            # Expand/collapse content
+            if not args or not args.isdigit():
+                self.ui.error("Usage: expand <content_id>  (or just: e <id>)")
+                self.ui.info("Example: expand 0")
+            else:
+                self.cmd_expand(int(args))
+
         else:
             # Not a recognized command - treat as natural language task
             self.ui.info("Treating input as natural language task...")
@@ -314,27 +328,27 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
         try:
             # Step 0: Check if this is a planning request
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Checking if planning is needed...")
-            is_planning, confidence = self.planner_agent.is_planning_request(description)
+            with LoadingSpinner("Analyzing request type...") as spinner:
+                is_planning, confidence = self.planner_agent.is_planning_request(description)
 
             if is_planning and confidence > 0.6:
-                print(f"  {self.ui.color('Planning detected!', Color.GREEN)} (confidence: {confidence:.2f})")
+                print(f"  {self.ui.color('✓ Planning detected!', Color.GREEN)} (confidence: {confidence:.2f})")
                 print()
                 self._handle_planning_request(description)
                 return
 
-            print(f"  {self.ui.color('Direct execution', Color.CYAN)} (planning confidence: {confidence:.2f})")
+            print(f"  {self.ui.color('→ Direct execution', Color.CYAN)} (planning confidence: {confidence:.2f})")
             print()
 
             # Step 1: Model selection
             selection = self.model_router.select_model(description)
 
             # Step 2: Triage - Decide if we need Context Agent or can respond directly
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Triage Agent ({self.ui.color(selection.model_name, Color.GREEN)}) analyzing request...")
-            triage_decision = self.triage_agent.triage_request(description)
+            with LoadingSpinner(f"Triage Agent ({selection.model_name}) analyzing...") as spinner:
+                triage_decision = self.triage_agent.triage_request(description)
 
-            print(f"  Route: {self.ui.color(triage_decision['route'].upper(), Color.CYAN)} (confidence: {triage_decision['confidence']:.2f})")
-            print(f"  Reason: {triage_decision['reason']}")
+            print(f"  {self.ui.color('✓ Route:', Color.GREEN)} {self.ui.color(triage_decision['route'].upper(), Color.CYAN)} (confidence: {triage_decision['confidence']:.2f})")
+            print(f"  {self.ui.color('Reason:', Color.BRIGHT_BLACK)} {triage_decision['reason']}")
             print()
 
             # Update costs
@@ -347,10 +361,11 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 self._show_employee_section(f"Context Agent ({selection.model_name})", "Preparing optimized context...")
                 print()
 
-                context_result = self.context_agent.prepare_context_for_request(
-                    user_request=description,
-                    target_tier=selection.tier
-                )
+                with LoadingSpinner("Loading context from codebase...") as spinner:
+                    context_result = self.context_agent.prepare_context_for_request(
+                        user_request=description,
+                        target_tier=selection.tier
+                    )
 
             # Display context preparation results (only if Context Agent was called)
             if triage_decision['route'] == 'expert' and triage_decision.get('needs_context', True):
@@ -404,17 +419,16 @@ Total Cost: ${sum(self.costs.values()):.6f}
             print()
 
             # Step 4: Execute with filtered tools
-            print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Calling LLM with filtered tools...")
             print()
-
-            response = self.tool_executor.execute_with_tools(
-                messages=messages,
-                tier=selection.tier,
-                tools=filtered_tools,
-                max_tokens=None,  # Utilise les specs du modèle (128,000 pour nano)
-                temperature=1.0,
-                verbose=True  # Activer verbose pour voir les étapes
-            )
+            with LoadingSpinner(f"🤖 {selection.model_name} processing your request...") as spinner:
+                response = self.tool_executor.execute_with_tools(
+                    messages=messages,
+                    tier=selection.tier,
+                    tools=filtered_tools,
+                    max_tokens=None,  # Utilise les specs du modèle (128,000 pour nano)
+                    temperature=1.0,
+                    verbose=False  # Disable verbose to not interfere with spinner
+                )
 
             # Step 4: Display results
             print()
@@ -425,12 +439,15 @@ Total Cost: ${sum(self.costs.values()):.6f}
                     print(f"  {i}. {self.ui.color(tc.get('name', 'unknown'), Color.YELLOW)}")
                 print()
 
-            # Display response with colors
+            # Display response with styled markdown
             print()
             if response.content and response.content.strip():
-                # Afficher la réponse colorisée
-                colored_response = self._colorize_response(response.content)
-                print(colored_response)
+                # Render as markdown with rich styling
+                print(self.ui.color("━" * 80, Color.CYAN))
+                print(f"{self.ui.color('📝 RESPONSE', Color.BRIGHT_CYAN, bold=True)}")
+                print(self.ui.color("━" * 80, Color.CYAN))
+                print()
+                render_markdown(response.content)
                 print()
 
                 # Check if TOOLER is needed
@@ -467,12 +484,16 @@ Total Cost: ${sum(self.costs.values()):.6f}
                             data = tool_result['data']
                             if isinstance(data, list):
                                 print(f"   Data ({len(data)} items):")
-                                for j, item in enumerate(data[:5], 1):  # Max 5 items
-                                    print(f"     {j}. {str(item)[:100]}")
-                                if len(data) > 5:
-                                    print(f"     ... and {len(data) - 5} more items")
+                                # Use collapsible for long lists
+                                data_text = '\n'.join([f"     {j}. {str(item)}" for j, item in enumerate(data, 1)])
+                                display_collapsible(data_text, title=None, max_lines=10)
                             else:
-                                print(f"   Data: {str(data)[:200]}")
+                                data_str = str(data)
+                                if len(data_str) > 500:
+                                    # Use collapsible for long data
+                                    display_collapsible(data_str, title="   Data:", max_lines=10)
+                                else:
+                                    print(f"   Data: {data_str}")
 
                         # Afficher error si présent
                         if 'error' in tool_result and tool_result['error']:
@@ -1387,6 +1408,11 @@ Total Cost: ${sum(self.costs.values()):.6f}
         else:
             self.ui.error(f"Unknown QC command: {sub_cmd}")
             self.ui.info("Available: qc audit, qc report, qc logs")
+
+    def cmd_expand(self, content_id: int):
+        """Expand/collapse content by ID"""
+        manager = get_collapsible_manager()
+        manager.toggle(content_id)
 
     def cmd_optimize(self):
         """Process optimization queue"""
