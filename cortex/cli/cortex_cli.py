@@ -57,9 +57,9 @@ from cortex.tools.intelligence_tools import get_all_intelligence_tools
 
 # Cortex agents
 from cortex.agents import (
-    create_triage_agent, create_tooler_agent, create_communications_agent,
-    create_planner_agent, create_maintenance_agent, create_harmonization_agent,
-    create_quality_control_agent
+    create_triage_agent, create_quick_actions_agent, create_tooler_agent,
+    create_communications_agent, create_planner_agent, create_maintenance_agent,
+    create_harmonization_agent, create_quality_control_agent
 )
 from cortex.agents.context_agent import create_context_agent
 from cortex.agents.smart_router_agent import create_smart_router_agent
@@ -111,6 +111,7 @@ class CortexCLI:
 
         # Specialized agents
         self.triage_agent = create_triage_agent(self.llm_client)
+        self.quick_actions_agent = None  # Created after available_tools registered
         self.tooler_agent = create_tooler_agent(self.llm_client)
         self.communications_agent = create_communications_agent(self.llm_client)
         self.planner_agent = create_planner_agent(self.llm_client, self.todo_manager)
@@ -149,6 +150,9 @@ class CortexCLI:
         # Register all tools with executor
         for tool in self.available_tools:
             self.tool_executor.register_tool(tool)
+
+        # Create Quick Actions Agent after tools are registered
+        self.quick_actions_agent = create_quick_actions_agent(self.llm_client, self.available_tools)
 
         # Conversation history for context
         self.conversation_history: List[Dict[str, Any]] = []
@@ -422,14 +426,47 @@ Total Cost: ${sum(self.costs.values()):.6f}
                 self._handle_planning_request(description)
                 return
 
-            # Route 2: DIRECT (conversation simple sans outils)
+            # Route 2: QUICK (action atomique simple avec 1 outil read-only)
+            if triage_decision['route'] == 'quick':
+                print(f"  {self.ui.color('→ Quick Actions Agent (NANO + 1 outil)', Color.CYAN)}")
+                print()
+
+                with LoadingSpinner(f"👤 Quick Actions Agent - Vérification rapide") as spinner:
+                    quick_result = self.quick_actions_agent.execute(request=description)
+
+                # Check if escalation needed
+                if quick_result.get('should_escalate'):
+                    print(f"  {self.ui.color('⬆️  Escalade vers Task Executor', Color.YELLOW)} (trop complexe pour Quick Actions)")
+                    print(f"  {self.ui.color('Raison:', Color.BRIGHT_BLACK)} {quick_result.get('error', 'Complexity detected')}")
+                    print()
+                    # Continue to expert workflow below
+                else:
+                    # Display quick result
+                    print()
+                    print(self.ui.color("━" * 80, Color.CYAN))
+                    print(f"{self.ui.color('⚡ QUICK RESPONSE', Color.BRIGHT_CYAN, bold=True)}")
+                    print(self.ui.color("━" * 80, Color.CYAN))
+                    print()
+                    print(quick_result['content'])
+                    print()
+
+                    # Update costs
+                    quick_cost = quick_result.get('cost', 0.0)
+                    self.costs['nano'] += quick_cost
+                    self.total_cost += quick_cost
+
+                    # Success message
+                    self.ui.success(f"✓ Action rapide complétée! Coût: ${quick_cost:.6f} | Modèle: {quick_result.get('model', 'nano')}")
+                    return
+
+            # Route 3: DIRECT (conversation simple sans outils)
             if triage_decision['route'] == 'direct':
                 # TODO: Implémenter vraiment la route direct avec réponse LLM simple
                 # Pour l'instant, on continue avec le workflow expert silencieusement
                 # Ne PAS afficher de message trompeur!
                 pass
 
-            # Route 3: EXPERT (besoin d'outils) - ou DIRECT qui passe par ici temporairement
+            # Route 4: EXPERT (besoin d'outils) - ou DIRECT qui passe par ici temporairement
 
             # Step 3: Context Agent - Only if needed
             context_result = {'context': '', 'metadata': {'context_needed': {'needed': False, 'reason': 'Triage decided direct response', 'confidence': 1.0}, 'cache_hits': [], 'git_diff_included': False, 'total_cost': 0.0}}

@@ -692,6 +692,40 @@ IMPORTANT: Be honest about your confidence. If logs are limited or unclear, set 
             if not tools:
                 score -= 5
 
+        # ⚠️ CRITICAL: Detect file operation hallucination
+        # Si la réponse prétend avoir fait une opération fichier mais n'a pas appelé d'outil
+        file_operation_claims = [
+            # French
+            "j'ai supprimé", "fichier supprimé", "j'ai créé", "fichier créé",
+            "j'ai modifié", "fichier modifié", "j'ai effacé", "fichier effacé",
+            # English
+            "i deleted", "file deleted", "i created", "file created",
+            "i modified", "file modified", "i removed", "file removed",
+            "deleted the file", "created the file", "modified the file",
+            # Other variations
+            "✓ supprimé", "✓ créé", "✓ modifié",
+            "successfully deleted", "successfully created", "successfully modified"
+        ]
+
+        file_operation_tools = [
+            'delete_file', 'create_file', 'write_file', 'modify_file',
+            'remove_file', 'edit_file', 'save_file'
+        ]
+
+        # Vérifier si réponse prétend avoir fait opération fichier
+        response_lower = response.lower()
+        claims_file_operation = any(claim in response_lower for claim in file_operation_claims)
+
+        if claims_file_operation:
+            # Vérifier si un outil fichier a été appelé
+            tool_names = [t.get('name', '') for t in tools] if tools else []
+            used_file_tool = any(tool in tool_names for tool in file_operation_tools)
+
+            if not used_file_tool:
+                # HALLUCINATION DÉTECTÉE - Pénalité SÉVÈRE
+                score -= 20  # Perte massive de points
+                # Marquer pour recommandation critique (voir _generate_optimization_recommendations)
+
         return max(0, score)
 
     def _evaluate_model_choice(self, request: str, tier: str, tokens_in: int, tokens_out: int) -> float:
@@ -837,13 +871,58 @@ IMPORTANT: Be honest about your confidence. If logs are limited or unclear, set 
 
         # Quality recommendations
         if qual < 20:
-            recommendations.append({
-                'category': 'quality',
-                'priority': 'high',
-                'issue': 'Response quality below standard',
-                'suggestion': 'Review prompt engineering or use higher tier model',
-                'impact': 'Improve user satisfaction'
-            })
+            # Détecter hallucination d'opération fichier
+            response = request_data.get('response', '')
+            tools = request_data.get('tool_calls', [])
+
+            file_operation_claims = [
+                "j'ai supprimé", "fichier supprimé", "j'ai créé", "fichier créé",
+                "j'ai modifié", "fichier modifié", "j'ai effacé", "fichier effacé",
+                "i deleted", "file deleted", "i created", "file created",
+                "i modified", "file modified", "i removed", "file removed",
+                "deleted the file", "created the file", "modified the file",
+                "✓ supprimé", "✓ créé", "✓ modifié",
+                "successfully deleted", "successfully created", "successfully modified"
+            ]
+
+            file_operation_tools = [
+                'delete_file', 'create_file', 'write_file', 'modify_file',
+                'remove_file', 'edit_file', 'save_file'
+            ]
+
+            response_lower = response.lower()
+            claims_file_operation = any(claim in response_lower for claim in file_operation_claims)
+
+            if claims_file_operation:
+                tool_names = [t.get('name', '') for t in tools] if tools else []
+                used_file_tool = any(tool in tool_names for tool in file_operation_tools)
+
+                if not used_file_tool:
+                    # HALLUCINATION CRITIQUE DÉTECTÉE
+                    recommendations.append({
+                        'category': 'quality',
+                        'priority': 'high',
+                        'issue': '🚨 FILE OPERATION HALLUCINATION - Cortex claims to have performed file operation without calling any tool',
+                        'suggestion': 'CRITICAL: Reinforce baseprompt to explicitly state that file operations REQUIRE tools. Add phrase "You are an LLM - you CANNOT access file system without tools"',
+                        'impact': 'User expects file deleted/created but it was not actually done - BREAKS USER TRUST'
+                    })
+                else:
+                    # Qualité basse mais pas hallucination
+                    recommendations.append({
+                        'category': 'quality',
+                        'priority': 'high',
+                        'issue': 'Response quality below standard',
+                        'suggestion': 'Review prompt engineering or use higher tier model',
+                        'impact': 'Improve user satisfaction'
+                    })
+            else:
+                recommendations.append({
+                    'category': 'quality',
+                    'priority': 'high',
+                    'issue': 'Response quality below standard',
+                    'suggestion': 'Review prompt engineering or use higher tier model',
+                    'impact': 'Improve user satisfaction'
+                })
 
         # Model choice recommendations
         if model < 15:

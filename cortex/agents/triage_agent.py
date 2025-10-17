@@ -98,37 +98,46 @@ REQUÊTE: "{user_request}"
 
 CACHE: {"✓ Cache hits disponibles" if has_cache else "✗ Pas de cache"}
 
-TU AS 3 ROUTES POSSIBLES:
+TU AS 4 ROUTES POSSIBLES:
 
-1. ROUTE "planner" (demande de PLANIFICATION):
-   - Contient "planifie", "crée un plan", "décompose", "organise"
-   - Demande EXPLICITE de créer une roadmap
-   - Demande d'organiser un projet complexe
-   → Escalade vers Planner Agent (modèle moyen)
+1. ROUTE "quick" (opération atomique READ-ONLY):
+   - 1 SEUL outil simple nécessaire
+   - Opération de VÉRIFICATION ou CONSULTATION (pas de modification)
+   - Exemples: "fichier X existe?", "quelle heure?", "liste fichiers ici", "cherche fichier Y"
+   - Outils autorisés: file_exists, list_files, get_current_time, read_env_var, file_stats, search_files
+   → Quick Actions Agent (NANO + 1 outil simple)
 
 2. ROUTE "direct" (réponse immédiate sans outils):
    - Conversation simple (salutation, remerciement)
    - Question de CONNAISSANCE GÉNÉRALE (explique OAuth, c'est quoi Python)
    - AUCUN besoin d'accéder au système (fichiers, réseau, etc.)
-   → Réponse directe basée uniquement sur connaissances du LLM
+   → Direct Response Agent (NANO sans outils)
 
-3. ROUTE "expert" (besoin d'outils):
-   - VÉRIFIE l'état du système (fichier existe? service actif? valeur dans config?)
-   - MODIFIE le système (créer, supprimer, éditer fichiers)
-   - ACCÈDE à des ressources (git, web, base de données)
-   - Analyse ou génération de contenu
-   → Task Executor avec outils
+3. ROUTE "expert" (opération complexe ou modification):
+   - MULTIPLES outils nécessaires OU
+   - Opération de MODIFICATION (créer, éditer, supprimer fichiers, git, etc.) OU
+   - Besoin de CONTEXTE ou ANALYSE
+   - Exemples: "crée fichier X", "commit git", "analyse le code", "scrape site web"
+   → Task Executor (DeepSeek/Claude + tous outils)
 
-⚠️ IMPORTANT: "Est-ce que fichier X existe?" = EXPERT (besoin outil file_exists)
-⚠️ IMPORTANT: "C'est quoi OAuth?" = DIRECT (connaissance générale)
+4. ROUTE "planner" (demande de planification):
+   - Contient "planifie", "crée un plan", "décompose", "organise"
+   - Demande EXPLICITE de créer une roadmap
+   → Planner Agent
+
+⚠️ IMPORTANT:
+- "fichier X existe?" = QUICK (vérification simple, 1 outil read-only)
+- "liste fichiers" = QUICK (consultation simple)
+- "crée fichier X" = EXPERT (modification système)
+- "C'est quoi OAuth?" = DIRECT (connaissance pure)
 
 Pour ROUTE "expert", évalue needs_context:
 - true: Modification code existant, analyse architecture
-- false: Action simple (delete, read, search, create nouveau fichier)
+- false: Action simple mais avec modification (delete, create)
 
 Réponds UNIQUEMENT avec un JSON:
 {{
-  "route": "planner|direct|expert",
+  "route": "quick|direct|expert|planner",
   "confidence": 0.0-1.0,
   "reason": "explication courte",
   "needs_context": true/false,
@@ -168,16 +177,24 @@ Réponds UNIQUEMENT avec un JSON:
                 'roadmap', 'étapes', 'phases'
             ]
 
-            # Mots-clés pour actions nécessitant tools
-            action_keywords = [
+            # Mots-clés pour actions QUICK (vérifications simples, read-only)
+            quick_keywords = [
+                'existe', 'exists',
+                'liste', 'list', 'ls', 'dir',
+                'heure', 'time', 'date', 'now',
+                'check', 'vérifie', 'verify',
+                'cherche', 'find', 'search', 'trouve',
+                'fichier', 'file', 'dossier', 'folder'
+            ]
+
+            # Mots-clés pour actions EXPERT (modifications, multiples outils)
+            expert_keywords = [
                 'create', 'crée', 'make', 'fais',
                 'scrape', 'extract', 'extrais',
                 'git', 'commit', 'push',
                 'install', 'pip', 'npm',
                 'delete', 'efface', 'remove', 'supprime',
-                'search', 'find', 'cherche', 'trouve',
-                'existe', 'exists', 'fichier', 'file',  # Vérification fichiers
-                'check', 'vérifie', 'valide', 'test'
+                'edit', 'modifie', 'modify', 'change'
             ]
 
             # Mots-clés pour conversations simples (CONNAISSANCE uniquement, pas vérification)
@@ -195,9 +212,10 @@ Réponds UNIQUEMENT avec un JSON:
 
             # Détecter le type de requête
             is_planning = any(kw in user_lower for kw in planning_keywords)
+            is_quick = any(kw in user_lower for kw in quick_keywords)
+            is_expert = any(kw in user_lower for kw in expert_keywords)
             is_simple = any(kw in user_lower for kw in simple_keywords)
             is_knowledge = any(kw in user_lower for kw in knowledge_keywords)
-            needs_action = any(kw in user_lower for kw in action_keywords)
 
             # Priorité 1: Planification
             if is_planning:
@@ -210,33 +228,45 @@ Réponds UNIQUEMENT avec un JSON:
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
-            # Priorité 2: Action avec tools (AVANT simple, car "file exists" est action)
-            elif needs_action:
+            # Priorité 2: Quick action (vérification simple READ-ONLY)
+            # MAIS SEULEMENT si pas de modification demandée
+            elif is_quick and not is_expert:
                 return {
-                    'route': 'expert',
-                    'confidence': 0.75,
-                    'reason': 'Tool usage required (file check, creation, etc.)',
-                    'needs_context': 'code' in user_lower,
+                    'route': 'quick',
+                    'confidence': 0.80,
+                    'reason': 'Simple verification with read-only tool',
+                    'needs_context': False,
                     'complexity': 'simple',
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
-            # Priorité 3: Conversation simple (salutation) ou connaissance pure
+            # Priorité 3: Expert (modification ou opération complexe)
+            elif is_expert or (is_quick and is_expert):
+                return {
+                    'route': 'expert',
+                    'confidence': 0.75,
+                    'reason': 'Tool usage with modification or complex operation',
+                    'needs_context': 'code' in user_lower or 'analyse' in user_lower,
+                    'complexity': 'simple' if not ('code' in user_lower or 'analyse' in user_lower) else 'medium',
+                    'enhanced_request': user_request,
+                    'cost': 0.0
+                }
+            # Priorité 4: Conversation simple (salutation) ou connaissance pure
             elif is_simple or is_knowledge:
                 return {
                     'route': 'direct',
-                    'confidence': 0.7,
+                    'confidence': 0.70,
                     'reason': 'General knowledge question or simple conversation',
                     'needs_context': False,
                     'complexity': 'simple',
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
-            # Priorité 4: Par défaut expert
+            # Priorité 5: Par défaut expert
             else:
                 return {
                     'route': 'expert',
-                    'confidence': 0.6,
+                    'confidence': 0.60,
                     'reason': 'Complex request or unclear intent',
                     'needs_context': False,
                     'complexity': 'medium',

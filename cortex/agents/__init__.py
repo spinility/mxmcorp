@@ -3,6 +3,7 @@ Cortex Agents - Specialized autonomous agents
 
 Agents disponibles:
 - Triage: Décide du routage optimal (direct vs expert)
+- QuickActions: Exécute des opérations atomiques ultra-simples (1 outil read-only)
 - Tooler: Recherche et recommande des outils manquants
 - Communications: Formule des recommandations pour l'utilisateur
 - Planner: Détecte les demandes de planification et crée des tâches structurées
@@ -13,6 +14,7 @@ Agents disponibles:
 """
 
 from cortex.agents.triage_agent import TriageAgent, create_triage_agent
+from cortex.agents.quick_actions_agent import QuickActionsAgent, create_quick_actions_agent
 from cortex.agents.tooler_agent import ToolerAgent, create_tooler_agent
 from cortex.agents.communications_agent import CommunicationsAgent, create_communications_agent
 from cortex.agents.planner_agent import PlannerAgent, create_planner_agent
@@ -23,6 +25,7 @@ from cortex.agents.quality_control_agent import QualityControlAgent, create_qual
 
 __all__ = [
     'TriageAgent',
+    'QuickActionsAgent',
     'ToolerAgent',
     'CommunicationsAgent',
     'PlannerAgent',
@@ -31,6 +34,7 @@ __all__ = [
     'HarmonizationAgent',
     'QualityControlAgent',
     'create_triage_agent',
+    'create_quick_actions_agent',
     'create_tooler_agent',
     'create_communications_agent',
     'create_planner_agent',
