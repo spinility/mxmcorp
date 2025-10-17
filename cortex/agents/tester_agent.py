@@ -1,15 +1,29 @@
 """
-Tester Agent - Agent spécialisé dans la validation de code
+Tester Agent - Détermine intelligemment si des tests sont nécessaires
 
-ROLE: AGENT (Exécution) - Niveau 1 de la hiérarchie
-TIER: NANO pour validation ultra-rapide et économique
+ROLE: QUALITY_ASSURANCE (Analyse + Validation) - Niveau 2 de la hiérarchie
+TIER: DEEPSEEK pour analyse intelligente des besoins de tests
 
-Responsabilités:
-- Validation syntaxique (AST parsing)
-- Résolution des imports
-- Exécution des tests unitaires
-- Détection d'erreurs runtime
-- Recommandations d'escalation vers EXPERT
+WORKFLOW:
+1. Reçoit notification de changements (via MaintenanceAgent ou workflow)
+2. Analyse avec base_prompt: détermine si tests nécessaires selon logique
+3. Vérifie si tests requis existent déjà
+4. Si manquants, requête ToolerAgent pour création
+5. BONUS: Peut aussi valider/exécuter tests existants
+
+Logique de décision (base_prompt):
+- Nouvelle fonction/classe → Test requis
+- Bug fix → Test de régression requis
+- Refactoring → Vérifier tests existants
+- Documentation → Pas de test requis
+- Config/paramètres → Test d'intégration possible
+- API endpoint → Test d'intégration requis
+- Database schema → Test de migration requis
+
+Déclenché:
+- Par MaintenanceAgent après exécution de plan d'harmonisation
+- Manuellement via CLI
+- Par git_integration_workflow si testing_required=True
 """
 
 import ast
@@ -22,9 +36,10 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from cortex.core.llm_client import LLMClient
-from cortex.core.model_router import ModelTier
-from cortex.core.agent_hierarchy import ExecutionAgent, AgentRole, AgentResult, EscalationContext
+from cortex.core.llm_client import LLMClient, ModelTier
+from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
+from cortex.repositories.changelog_repository import get_changelog_repository
+from cortex.repositories.file_repository import get_file_repository
 
 
 class TestStatus(Enum):
@@ -120,50 +135,22 @@ class ValidationReport:
         }
 
 
-class TesterAgent(ExecutionAgent):
+class TesterAgent(DecisionAgent):
     """
-    Tester Agent - Niveau AGENT (Exécution) dans la hiérarchie
+    Tester Agent - Niveau DECISION (Quality Assurance) dans la hiérarchie
 
-    Hérite d'ExecutionAgent pour intégration dans le système hiérarchique.
-    Spécialisation: Validation et tests de code.
+    Hérite de DecisionAgent pour intégration dans le système hiérarchique.
+    Spécialisation: Analyse des besoins en tests et validation.
     """
-
-    # Prompt ultra-optimisé pour nano
-    NANO_TESTER_PROMPT = """You are a NANO TESTER AGENT - Ultra-efficient code validator.
-
-MISSION: Validate code changes with ZERO tolerance for errors.
-
-PROTOCOL:
-1. Analyze validation results provided
-2. Identify critical vs non-critical issues
-3. Recommend action: pass_to_commit | fix_required | escalate_tier
-
-ESCALATION TRIGGERS:
-- 3+ syntax errors → escalate
-- Same error repeated → escalate
-- Complex logic errors → escalate
-- Import failures (missing deps) → escalate
-- Infinite loop or crash → escalate
-
-OUTPUT (JSON only, no explanations):
-{
-  "recommendation": "pass_to_commit" | "fix_required" | "escalate_tier",
-  "escalation_reason": "reason" | null,
-  "confidence": 0.0-1.0,
-  "priority_fixes": ["issue1", "issue2"],
-  "summary": "1 sentence"
-}
-
-EFFICIENCY: Max 50 tokens response."""
 
     def __init__(self, llm_client: LLMClient):
         """
         Initialize Tester Agent
 
         Args:
-            llm_client: Client LLM pour analyse nano
+            llm_client: Client LLM pour analyse (DEEPSEEK tier)
         """
-        # Initialiser ExecutionAgent avec spécialisation "testing"
+        # Initialiser DecisionAgent avec spécialisation "testing"
         super().__init__(llm_client, specialization="testing")
         self.test_history: List[ValidationReport] = []
 
@@ -198,55 +185,427 @@ EFFICIENCY: Max 50 tokens response."""
         escalation_context: Optional[EscalationContext] = None
     ) -> AgentResult:
         """
-        Exécute la validation de code
+        Exécute l'analyse des besoins en tests
 
-        Override ExecutionAgent.execute() avec logique TesterAgent
+        Nouveau workflow:
+        1. Analyser changed_files pour déterminer si tests nécessaires (base_prompt logic)
+        2. Vérifier si tests existent
+        3. Requêter ToolerAgent si tests manquants
+        4. (Bonus) Peut aussi valider/exécuter tests existants
 
         Args:
-            request: Requête (peut contenir description de validation)
-            context: Dict avec 'filepaths' requis
+            request: Requête utilisateur
+            context: Dict avec 'changed_files' ou 'filepaths'
             escalation_context: Contexte si escalation
 
         Returns:
-            AgentResult avec validation report
+            AgentResult avec analyse des tests
         """
-        # Extraire filepaths du contexte
+        # Extraire changed_files ou filepaths du contexte
+        changed_files = context.get('changed_files', []) if context else []
         filepaths = context.get('filepaths', []) if context else []
+        plan = context.get('harmonization_plan') if context else None
+        run_validation = context.get('run_validation', False) if context else False
 
-        if not filepaths:
+        # Convertir filepaths en changed_files format si nécessaire
+        if not changed_files and filepaths:
+            changed_files = [{'path': fp, 'change_type': 'modified'} for fp in filepaths]
+
+        if not changed_files and not plan:
             return AgentResult(
                 success=False,
                 role=self.role,
                 tier=self.tier,
-                content=None,
+                content={'error': 'No changed files or plan provided'},
                 cost=0.0,
                 confidence=0.0,
-                should_escalate=True,
-                escalation_reason="No filepaths provided for validation",
-                error="Missing filepaths in context"
+                should_escalate=False,
+                error='Insufficient context for test analysis'
             )
 
-        # Exécuter validation
-        run_tests = context.get('run_tests', True) if context else True
-        test_timeout = context.get('test_timeout', 30) if context else 30
+        # Analyser les besoins en tests (base_prompt logic)
+        analysis = self.analyze_test_requirements(changed_files, plan)
 
-        report = self.validate_code(filepaths, run_tests, test_timeout)
-
-        # Mapper ValidationReport → AgentResult
-        should_escalate = report.recommendation == "escalate_tier"
+        # Si run_validation=True, exécuter aussi la validation
+        if run_validation and analysis.get('existing_tests'):
+            test_files = [t['expected_test_path'] for t in analysis['existing_tests']]
+            validation_report = self.validate_code(test_files, run_tests=True, test_timeout=30)
+            analysis['validation_report'] = validation_report.to_dict()
 
         return AgentResult(
-            success=report.status == TestStatus.PASS,
+            success=analysis['success'],
             role=self.role,
             tier=self.tier,
-            content=report.to_dict(),
-            cost=0.0001,  # Nano cost estimate
-            confidence=report.confidence,
-            should_escalate=should_escalate,
-            escalation_reason=report.escalation_reason.value if report.escalation_reason else None,
-            error=None if report.status == TestStatus.PASS else f"{len(report.syntax_errors + report.import_errors + report.test_failures)} errors",
-            metadata={'report': report}
+            content=analysis,
+            cost=analysis.get('cost', 0.0),
+            confidence=0.85,
+            should_escalate=False,
+            escalation_reason=None,
+            error=analysis.get('error'),
+            metadata={'test_analysis': analysis}
         )
+
+    def analyze_test_requirements(
+        self,
+        changed_files: List[Dict[str, Any]],
+        plan: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyse intelligente des besoins en tests basée sur base_prompt logic
+
+        Args:
+            changed_files: Liste des fichiers modifiés avec path et change_type
+            plan: Plan d'harmonisation optionnel
+
+        Returns:
+            Dict avec:
+                - tests_required: Boolean
+                - required_tests: Liste des tests nécessaires
+                - existing_tests: Liste des tests existants
+                - missing_tests: Liste des tests manquants
+                - test_requests: Requêtes pour ToolerAgent
+        """
+        try:
+            changelog_repo = get_changelog_repository()
+
+            print(f"\n{'='*70}")
+            print(f"🧪 TESTER AGENT - Test Requirements Analysis")
+            print(f"{'='*70}")
+            print(f"Analyzing {len(changed_files)} changed files\n")
+
+            required_tests = []
+            existing_tests = []
+            missing_tests = []
+            test_requests = []
+
+            # Analyser chaque fichier avec base_prompt logic
+            for file_info in changed_files:
+                file_path = file_info.get('path', file_info.get('file_path', ''))
+                change_type = file_info.get('change_type', 'modified')
+
+                print(f"Analyzing: {file_path} ({change_type})")
+
+                # Base prompt logic: déterminer si test nécessaire
+                test_needed = self._determine_test_needed(file_path, change_type, file_info)
+
+                if test_needed['required']:
+                    test_type = test_needed['test_type']
+                    rationale = test_needed['rationale']
+
+                    print(f"  → Test required: {test_type}")
+                    print(f"     Rationale: {rationale}")
+
+                    # Construire le chemin du test attendu
+                    expected_test_path = self._get_expected_test_path(file_path)
+
+                    required_test = {
+                        'source_file': file_path,
+                        'test_type': test_type,
+                        'expected_test_path': expected_test_path,
+                        'rationale': rationale,
+                        'priority': test_needed.get('priority', 'medium')
+                    }
+
+                    required_tests.append(required_test)
+
+                    # Vérifier si le test existe
+                    if self._test_exists(expected_test_path):
+                        existing_tests.append(required_test)
+                        print(f"  ✓ Test exists: {expected_test_path}")
+                    else:
+                        missing_tests.append(required_test)
+                        print(f"  ✗ Test missing: {expected_test_path}")
+
+                        # Créer une requête pour ToolerAgent
+                        test_request = {
+                            'action': 'create_test',
+                            'source_file': file_path,
+                            'test_file': expected_test_path,
+                            'test_type': test_type,
+                            'rationale': rationale,
+                            'priority': test_needed.get('priority', 'medium')
+                        }
+                        test_requests.append(test_request)
+
+                else:
+                    print(f"  → No test required: {test_needed['rationale']}")
+
+            # Log l'analyse dans changelog
+            changelog_repo.log_change(
+                change_type='test_analysis',
+                entity_type='test_requirements',
+                author='TesterAgent',
+                description=f"Analyzed {len(changed_files)} files: {len(required_tests)} tests required, {len(missing_tests)} missing",
+                impact_level='medium',
+                metadata={
+                    'files_analyzed': len(changed_files),
+                    'tests_required': len(required_tests),
+                    'tests_existing': len(existing_tests),
+                    'tests_missing': len(missing_tests)
+                }
+            )
+
+            print(f"\n{'='*70}")
+            print(f"Test Analysis Summary:")
+            print(f"  Required: {len(required_tests)}")
+            print(f"  Existing: {len(existing_tests)}")
+            print(f"  Missing: {len(missing_tests)}")
+            print(f"  Requests for ToolerAgent: {len(test_requests)}")
+            print(f"{'='*70}\n")
+
+            return {
+                'success': True,
+                'action': 'analyze_test_requirements',
+                'tests_required': len(required_tests) > 0,
+                'required_tests': required_tests,
+                'existing_tests': existing_tests,
+                'missing_tests': missing_tests,
+                'test_requests': test_requests,
+                'coverage_status': 'complete' if len(missing_tests) == 0 else 'incomplete',
+                'cost': 0.0  # Base prompt logic, no LLM call
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'action': 'analyze_test_requirements',
+                'error': f"Test analysis failed: {str(e)}",
+                'cost': 0.0
+            }
+
+    def _determine_test_needed(
+        self,
+        file_path: str,
+        change_type: str,
+        file_info: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        BASE PROMPT LOGIC: Détermine si un test est nécessaire
+
+        Cette logique est basée sur des règles claires et explicites,
+        pas sur un appel LLM. C'est la "base_prompt" logic.
+
+        Args:
+            file_path: Chemin du fichier
+            change_type: Type de changement (added, modified, deleted)
+            file_info: Informations supplémentaires
+
+        Returns:
+            Dict avec:
+                - required: Boolean
+                - test_type: Type de test si requis
+                - rationale: Explication
+                - priority: 'high', 'medium', 'low'
+        """
+        # Test files themselves don't need tests
+        if 'test_' in file_path or '/tests/' in file_path:
+            return {
+                'required': False,
+                'test_type': None,
+                'rationale': 'Test file - no test required',
+                'priority': None
+            }
+
+        # Documentation files don't need tests
+        if file_path.endswith(('.md', '.txt', '.rst', '.pdf')):
+            return {
+                'required': False,
+                'test_type': None,
+                'rationale': 'Documentation file - no test required',
+                'priority': None
+            }
+
+        # Config files might need integration tests
+        if file_path.endswith(('.yaml', '.yml', '.json', '.toml', '.ini', '.cfg')):
+            return {
+                'required': True,
+                'test_type': 'integration',
+                'rationale': 'Config file change - integration test recommended',
+                'priority': 'low'
+            }
+
+        # Python files: check content type
+        if file_path.endswith('.py'):
+            # Agent files need tests
+            if '/agents/' in file_path:
+                return {
+                    'required': True,
+                    'test_type': 'unit',
+                    'rationale': 'Agent implementation - unit tests required',
+                    'priority': 'high'
+                }
+
+            # Core modules need tests
+            if '/core/' in file_path:
+                return {
+                    'required': True,
+                    'test_type': 'unit',
+                    'rationale': 'Core module - unit tests required',
+                    'priority': 'high'
+                }
+
+            # Repository layer needs tests
+            if '/repositories/' in file_path:
+                return {
+                    'required': True,
+                    'test_type': 'integration',
+                    'rationale': 'Repository layer - integration tests required',
+                    'priority': 'high'
+                }
+
+            # Tools need tests
+            if '/tools/' in file_path:
+                return {
+                    'required': True,
+                    'test_type': 'unit',
+                    'rationale': 'Tool implementation - unit tests required',
+                    'priority': 'medium'
+                }
+
+            # Utilities need tests
+            if '/utils/' in file_path:
+                return {
+                    'required': True,
+                    'test_type': 'unit',
+                    'rationale': 'Utility function - unit tests required',
+                    'priority': 'medium'
+                }
+
+            # Database-related files need tests
+            if 'database' in file_path.lower() or 'db' in file_path.lower():
+                return {
+                    'required': True,
+                    'test_type': 'integration',
+                    'rationale': 'Database code - integration tests required',
+                    'priority': 'high'
+                }
+
+            # API/endpoint files need tests
+            if 'api' in file_path.lower() or 'endpoint' in file_path.lower():
+                return {
+                    'required': True,
+                    'test_type': 'integration',
+                    'rationale': 'API endpoint - integration tests required',
+                    'priority': 'high'
+                }
+
+            # Generic Python file
+            return {
+                'required': True,
+                'test_type': 'unit',
+                'rationale': 'Python module - unit tests recommended',
+                'priority': 'medium'
+            }
+
+        # SQL files need migration tests
+        if file_path.endswith('.sql'):
+            return {
+                'required': True,
+                'test_type': 'migration',
+                'rationale': 'SQL script - migration test required',
+                'priority': 'high'
+            }
+
+        # Default: no test required for other file types
+        return {
+            'required': False,
+            'test_type': None,
+            'rationale': f'File type {Path(file_path).suffix} - no test required',
+            'priority': None
+        }
+
+    def _get_expected_test_path(self, source_file: str) -> str:
+        """
+        Détermine le chemin attendu du fichier de test
+
+        Convention:
+        - cortex/agents/foo.py → tests/agents/test_foo.py
+        - cortex/core/bar.py → tests/core/test_bar.py
+        """
+        # Remplacer cortex/ par tests/
+        if source_file.startswith('cortex/'):
+            test_path = source_file.replace('cortex/', 'tests/', 1)
+        else:
+            test_path = f"tests/{source_file}"
+
+        # Ajouter test_ prefix au nom du fichier
+        path_parts = test_path.split('/')
+        filename = path_parts[-1]
+
+        if not filename.startswith('test_'):
+            filename = f"test_{filename}"
+            path_parts[-1] = filename
+
+        return '/'.join(path_parts)
+
+    def _test_exists(self, test_path: str) -> bool:
+        """
+        Vérifie si un fichier de test existe
+
+        Args:
+            test_path: Chemin du fichier de test
+
+        Returns:
+            True si le test existe
+        """
+        import os
+        return os.path.exists(test_path)
+
+    def request_test_creation(self, test_requests: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Envoie des requêtes au ToolerAgent pour créer les tests manquants
+
+        Args:
+            test_requests: Liste des requêtes de création de tests
+
+        Returns:
+            Dict avec résultats des requêtes
+        """
+        try:
+            print(f"\n{'='*70}")
+            print(f"📝 TESTER AGENT - Requesting Test Creation")
+            print(f"{'='*70}")
+            print(f"Sending {len(test_requests)} requests to ToolerAgent\n")
+
+            # TODO: Intégrer avec ToolerAgent quand il sera créé
+            # Pour l'instant, on log les requêtes
+
+            changelog_repo = get_changelog_repository()
+
+            for idx, request in enumerate(test_requests, 1):
+                print(f"[{idx}/{len(test_requests)}] Request test creation:")
+                print(f"   Source: {request['source_file']}")
+                print(f"   Test: {request['test_file']}")
+                print(f"   Type: {request['test_type']}")
+                print(f"   Priority: {request['priority']}")
+
+                # Log la requête
+                changelog_repo.log_change(
+                    change_type='test_request',
+                    entity_type='tooler_request',
+                    author='TesterAgent',
+                    description=f"Requested test creation for {request['source_file']}",
+                    impact_level='medium',
+                    metadata=request
+                )
+
+            print(f"\n✓ {len(test_requests)} test creation requests logged")
+            print(f"{'='*70}\n")
+
+            return {
+                'success': True,
+                'action': 'request_test_creation',
+                'requests_sent': len(test_requests),
+                'requests': test_requests,
+                'note': 'Requests logged. ToolerAgent integration pending.'
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'action': 'request_test_creation',
+                'error': f"Request creation failed: {str(e)}"
+            }
 
     def validate_code(
         self,
@@ -489,62 +848,41 @@ EFFICIENCY: Max 50 tokens response."""
         return errors
 
     def _get_nano_recommendation(self, report: ValidationReport) -> Dict[str, Any]:
-        """Utilise nano LLM pour analyser et recommander"""
-        # Préparer résumé compact pour nano
-        summary = {
-            'syntax_errors_count': len(report.syntax_errors),
-            'import_errors_count': len(report.import_errors),
-            'test_failures_count': len(report.test_failures),
-            'errors_sample': [
-                e.message for e in (
-                    report.syntax_errors[:2] +
-                    report.import_errors[:2] +
-                    report.test_failures[:2]
-                )
-            ]
-        }
+        """
+        Analyse heuristique pour recommander une action
 
-        prompt = f"""{self.NANO_TESTER_PROMPT}
-
-VALIDATION RESULTS:
-{json.dumps(summary, indent=2)}
-
-YOUR ANALYSIS:"""
-
-        try:
-            response = self.llm_client.complete(
-                messages=[{"role": "user", "content": prompt}],
-                tier=ModelTier.NANO,
-                max_tokens=100
-                # Note: Nano model only supports temperature=1 (default)
-            )
-
-            result = json.loads(response.content.strip())
-            return result
-
-        except Exception as e:
-            # Fallback sur heuristique
-            if len(report.syntax_errors) >= 3:
-                return {
-                    'recommendation': 'escalate_tier',
-                    'escalation_reason': 'multiple_syntax_errors',
-                    'confidence': 0.8,
-                    'summary': 'Multiple syntax errors require higher tier'
-                }
-            elif report.import_errors:
-                return {
-                    'recommendation': 'escalate_tier',
-                    'escalation_reason': 'import_resolution_failed',
-                    'confidence': 0.7,
-                    'summary': 'Import errors need escalation'
-                }
-            else:
-                return {
-                    'recommendation': 'fix_required',
-                    'escalation_reason': None,
-                    'confidence': 0.6,
-                    'summary': 'Fixes required before commit'
-                }
+        Note: Utilise une logique heuristique simple au lieu d'un LLM call
+        pour garder la validation rapide et économique.
+        """
+        # Logique heuristique simple
+        if len(report.syntax_errors) >= 3:
+            return {
+                'recommendation': 'escalate_tier',
+                'escalation_reason': 'multiple_syntax_errors',
+                'confidence': 0.8,
+                'summary': 'Multiple syntax errors require higher tier'
+            }
+        elif report.import_errors:
+            return {
+                'recommendation': 'escalate_tier',
+                'escalation_reason': 'import_resolution_failed',
+                'confidence': 0.7,
+                'summary': 'Import errors need escalation'
+            }
+        elif len(report.test_failures) > 5:
+            return {
+                'recommendation': 'escalate_tier',
+                'escalation_reason': 'complex_logic_error',
+                'confidence': 0.7,
+                'summary': 'Multiple test failures suggest complex issues'
+            }
+        else:
+            return {
+                'recommendation': 'fix_required',
+                'escalation_reason': None,
+                'confidence': 0.6,
+                'summary': 'Fixes required before commit'
+            }
 
     def detect_repeated_errors(self, window: int = 3) -> bool:
         """

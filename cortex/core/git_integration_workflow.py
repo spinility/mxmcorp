@@ -1,11 +1,20 @@
 """
 Git Integration Workflow - Système complet d'harmonisation automatique
 
-Ce module orchestre la surveillance Git et l'harmonisation automatique :
-1. GitWatcherAgent → Détecte et analyse les changements
-2. HarmonizationAgent → Valide et harmonise si nécessaire
-3. ArchivistAgent → Met à jour les rapports
-4. Tout est logué dans la DB automatiquement
+NOUVEAU WORKFLOW COMPLET:
+1. GitWatcherAgent (NANO) → Détecte et analyse les changements
+2. HarmonizationAgent (GPT-5) → Génère PLAN d'harmonisation (ne l'exécute pas)
+3. MaintenanceAgent (DEEPSEEK) → EXÉCUTE le plan d'harmonisation
+4. TesterAgent (DEEPSEEK) → Vérifie besoins en tests (base_prompt logic)
+5. CommunicationsAgent (NANO) → Résume workflow avec thinking transparent
+6. ArchivistAgent → Met à jour les rapports
+7. Tout est logué dans la DB automatiquement
+
+Philosophie:
+- Séparation planning (GPT-5) vs exécution (DEEPSEEK/specialized agents)
+- Thinking transparent pour feedback utilisateur
+- Tests intelligents basés sur logique, pas sur LLM
+- Logs filtrés pour pertinence
 
 Usage:
     # Manuel
@@ -23,6 +32,9 @@ from datetime import datetime
 from cortex.core.llm_client import LLMClient
 from cortex.agents.git_watcher_agent import create_git_watcher_agent
 from cortex.agents.harmonization_agent import create_harmonization_agent
+from cortex.agents.maintenance_agent import create_maintenance_agent
+from cortex.agents.tester_agent import create_tester_agent
+from cortex.agents.communications_agent import create_communications_agent
 from cortex.agents.archivist_agent import create_archivist_agent
 from cortex.repositories.changelog_repository import get_changelog_repository
 
@@ -45,14 +57,19 @@ def run_git_integration(mode: str = 'post_commit') -> Dict[str, Any]:
     print()
 
     try:
+        session_start = datetime.now()
+
         # Initialize agents
         llm_client = LLMClient()
         git_watcher = create_git_watcher_agent(llm_client)
         harmonization = create_harmonization_agent(llm_client)
+        maintenance = create_maintenance_agent(llm_client)
+        tester = create_tester_agent(llm_client)
+        communications = create_communications_agent(llm_client)
         archivist = create_archivist_agent(llm_client)
 
         # Step 1: Git Watcher - Analyze changes
-        print("1️⃣  GitWatcherAgent - Analyzing changes...")
+        print("1️⃣  GitWatcherAgent (NANO) - Analyzing changes...")
         print("-" * 70)
 
         if mode == 'post_commit':
@@ -78,50 +95,126 @@ def run_git_integration(mode: str = 'post_commit') -> Dict[str, Any]:
         print(f"      Impact level: {git_data.get('analysis', {}).get('impact_level', 'unknown')}")
         print()
 
-        # Step 2: Harmonization Agent - Check consistency
+        # Step 2: Harmonization Agent - Generate PLAN (GPT-5)
         needs_harmonization = git_data.get('needs_harmonization', False)
+        harmonization_plan = None
+        maintenance_result_data = None
+        testing_result_data = None
 
         if needs_harmonization:
-            print("2️⃣  HarmonizationAgent - Checking consistency...")
+            print("2️⃣  HarmonizationAgent (GPT-5) - Generating harmonization plan...")
             print("-" * 70)
 
-            harmonization_result = harmonization.execute_with_tracking(
-                "harmonize changes",
-                context={
-                    'changed_files': git_data.get('changed_files', []),
-                    'git_analysis': git_data.get('analysis', {}),
-                    'commit_hash': git_data.get('commit', {}).get('hash')
-                }
+            # Generate plan (HarmonizationAgent now only generates plan, doesn't execute)
+            plan = harmonization.generate_harmonization_plan(
+                changed_files=git_data.get('changed_files', []),
+                git_analysis=git_data.get('analysis', {}),
+                conflicts=None,
+                architecture=None
             )
 
-            if not harmonization_result.success:
-                print(f"   ❌ Harmonization failed: {harmonization_result.error}")
-                harmonization_data = None
+            if plan:
+                harmonization_plan = plan
+                print(f"   ✅ Plan generated (ADR ID: {plan.get('adr_id')})")
+                print(f"      Title: {plan.get('title', 'Untitled')}")
+                print(f"      Actions: {len(plan.get('actions', []))}")
+                print(f"      Testing required: {plan.get('testing_required', False)}")
+                print()
+
+                # Step 3: MaintenanceAgent - EXECUTE the plan
+                print("3️⃣  MaintenanceAgent (DEEPSEEK) - Executing harmonization plan...")
+                print("-" * 70)
+
+                maintenance_result = maintenance.execute_harmonization_plan(plan)
+
+                if maintenance_result['success']:
+                    print(f"   ✅ Plan executed successfully")
+                    print(f"      Executed: {maintenance_result['executed']}")
+                    print(f"      Failed: {maintenance_result['failed']}")
+                    print(f"      Success rate: {maintenance_result['success_rate']*100:.1f}%")
+                    maintenance_result_data = maintenance_result
+                else:
+                    print(f"   ❌ Plan execution failed: {maintenance_result.get('error')}")
+                print()
+
+                # Step 4: TesterAgent - Verify test requirements (base_prompt logic)
+                if plan.get('testing_required', False):
+                    print("4️⃣  TesterAgent (DEEPSEEK) - Analyzing test requirements...")
+                    print("-" * 70)
+
+                    test_analysis = tester.analyze_test_requirements(
+                        changed_files=git_data.get('changed_files', []),
+                        plan=plan
+                    )
+
+                    if test_analysis['success']:
+                        print(f"   ✅ Test analysis complete")
+                        print(f"      Tests required: {len(test_analysis['required_tests'])}")
+                        print(f"      Tests existing: {len(test_analysis['existing_tests'])}")
+                        print(f"      Tests missing: {len(test_analysis['missing_tests'])}")
+                        print(f"      Coverage status: {test_analysis['coverage_status']}")
+
+                        # If tests are missing, request creation
+                        if test_analysis['missing_tests']:
+                            print(f"      📝 Requesting {len(test_analysis['test_requests'])} test creations...")
+                            tester.request_test_creation(test_analysis['test_requests'])
+
+                        testing_result_data = test_analysis
+                    else:
+                        print(f"   ❌ Test analysis failed: {test_analysis.get('error')}")
+                    print()
+                else:
+                    print("4️⃣  TesterAgent - Skipped (no testing required)")
+                    print()
+
             else:
-                harmonization_data = harmonization_result.content
-                conflicts = harmonization_data.get('conflicts', {})
-
-                print(f"   ✅ Harmonization complete")
-                print(f"      Conflicts detected: {conflicts.get('conflict_count', 0)}")
-                print(f"      Severity: {conflicts.get('severity', 'none')}")
-
-                if harmonization_data.get('harmonization_plan'):
-                    print(f"      🔧 Harmonization plan generated")
-                    plan = harmonization_data['harmonization_plan']
-                    if plan.get('actions'):
-                        print(f"      Actions needed: {len(plan['actions'])}")
-
-                if harmonization_data.get('needs_specialist'):
-                    print(f"      ⚠️  Requires specialist agent review")
-
+                print(f"   ❌ Plan generation failed")
                 print()
         else:
             print("2️⃣  HarmonizationAgent - Skipped (low impact changes)")
             print()
-            harmonization_data = None
+            print("3️⃣  MaintenanceAgent - Skipped")
+            print()
+            print("4️⃣  TesterAgent - Skipped")
+            print()
 
-        # Step 3: Archivist Agent - Update reports
-        print("3️⃣  ArchivistAgent - Updating reports...")
+        # Step 5: CommunicationsAgent - Summarize workflow thinking
+        print("5️⃣  CommunicationsAgent (NANO) - Summarizing workflow thinking...")
+        print("-" * 70)
+
+        communication_summary = communications.summarize_workflow(
+            context={
+                'session_start': session_start,
+                'agents_involved': ['GitWatcherAgent', 'HarmonizationAgent', 'MaintenanceAgent', 'TesterAgent'],
+                'focus': 'all'
+            }
+        )
+
+        if communication_summary['success']:
+            print(f"   ✅ Workflow summary generated")
+            print(f"      Logs analyzed: {communication_summary['logs_analyzed']}")
+            print(f"      Key decisions: {len(communication_summary['decisions'])}")
+            print(f"      Alternatives found: {len(communication_summary['alternatives'])}")
+            print()
+            print("   " + "="*66)
+            print("   📋 WORKFLOW THINKING SUMMARY")
+            print("   " + "="*66)
+            print()
+            # Print summary (indented)
+            for line in communication_summary['summary'].split('\n'):
+                print(f"   {line}")
+            print()
+            # Print feedback prompt
+            if communication_summary['feedback_prompt']:
+                for line in communication_summary['feedback_prompt'].split('\n'):
+                    print(f"   {line}")
+            print()
+        else:
+            print(f"   ❌ Summary generation failed: {communication_summary.get('error')}")
+        print()
+
+        # Step 6: Archivist Agent - Update reports
+        print("6️⃣  ArchivistAgent - Updating reports...")
         print("-" * 70)
 
         archivist_result = archivist.execute_with_tracking(
@@ -142,8 +235,8 @@ def run_git_integration(mode: str = 'post_commit') -> Dict[str, Any]:
                 print(f"      Roadmap sync: ✅")
             print()
 
-        # Step 4: Log to change_log
-        print("4️⃣  Logging workflow completion...")
+        # Step 7: Log to change_log
+        print("7️⃣  Logging workflow completion...")
         print("-" * 70)
 
         changelog_repo = get_changelog_repository()
@@ -151,13 +244,16 @@ def run_git_integration(mode: str = 'post_commit') -> Dict[str, Any]:
             change_type='git_integration',
             entity_type='system',
             author='GitIntegrationWorkflow',
-            description=f"Git integration workflow completed ({mode})",
+            description=f"Complete git integration workflow with thinking transparency ({mode})",
             impact_level=git_data.get('analysis', {}).get('impact_level', 'low'),
             metadata={
                 'mode': mode,
                 'files_changed': len(git_data.get('changed_files', [])),
                 'harmonization_needed': needs_harmonization,
-                'conflicts_found': harmonization_data.get('conflicts', {}).get('conflict_count', 0) if harmonization_data else 0
+                'plan_generated': harmonization_plan is not None,
+                'plan_executed': maintenance_result_data is not None,
+                'tests_analyzed': testing_result_data is not None,
+                'workflow_summarized': communication_summary['success'] if communication_summary else False
             }
         )
 
@@ -168,19 +264,40 @@ def run_git_integration(mode: str = 'post_commit') -> Dict[str, Any]:
         print("="*70)
         print("✅ GIT INTEGRATION WORKFLOW COMPLETE")
         print("="*70)
+        print()
+        print(f"📊 Summary:")
+        print(f"   Files changed: {len(git_data.get('changed_files', []))}")
+        print(f"   Impact level: {git_data.get('analysis', {}).get('impact_level', 'unknown')}")
+        print(f"   Plan generated: {'✅' if harmonization_plan else '⊘'}")
+        if maintenance_result_data:
+            print(f"   Plan executed: ✅ ({maintenance_result_data['executed']} actions)")
+        if testing_result_data:
+            print(f"   Tests analyzed: ✅ ({len(testing_result_data['required_tests'])} required)")
+        print(f"   Workflow summarized: {'✅' if communication_summary['success'] else '❌'}")
+        print(f"   Reports updated: {'✅' if archivist_data else '❌'}")
+        print()
+        print("="*70)
 
         result = {
             'success': True,
             'mode': mode,
             'timestamp': datetime.now().isoformat(),
+            'session_start': session_start.isoformat(),
             'git_analysis': git_data,
-            'harmonization': harmonization_data,
+            'harmonization_plan': harmonization_plan,
+            'maintenance_result': maintenance_result_data,
+            'testing_result': testing_result_data,
+            'communication_summary': communication_summary,
             'archivist': archivist_data,
             'summary': {
                 'files_changed': len(git_data.get('changed_files', [])),
                 'impact_level': git_data.get('analysis', {}).get('impact_level', 'unknown'),
                 'harmonization_needed': needs_harmonization,
-                'conflicts_found': harmonization_data.get('conflicts', {}).get('conflict_count', 0) if harmonization_data else 0,
+                'plan_generated': harmonization_plan is not None,
+                'actions_executed': maintenance_result_data['executed'] if maintenance_result_data else 0,
+                'tests_required': len(testing_result_data['required_tests']) if testing_result_data else 0,
+                'tests_missing': len(testing_result_data['missing_tests']) if testing_result_data else 0,
+                'thinking_summary_available': communication_summary['success'] if communication_summary else False,
                 'reports_updated': archivist_data is not None
             }
         }

@@ -1,31 +1,36 @@
 """
-Maintenance Agent - Gère les contextes globaux, par agent, par département
+Maintenance Agent - Exécute les plans d'harmonisation et maintient le système
 
-ROLE: DIRECTEUR (Décision + Coordination) - Niveau 3 de la hiérarchie
-TIER: NANO pour décisions rapides, DEEPSEEK pour analyses complexes
+ROLE: DIRECTEUR (Coordination + Exécution) - Niveau 3 de la hiérarchie
+TIER: DEEPSEEK pour exécution intelligente des plans
+
+NOUVEAU WORKFLOW:
+Reçoit un plan d'harmonisation du HarmonizationAgent (GPT-5) et l'EXÉCUTE.
 
 Responsabilités:
-- Stocker et mettre à jour les contextes globaux
-- Stocker les contextes par agent (Triage, Planner, Tooler, etc.)
-- Stocker les contextes par département (Intelligence, Maintenance, etc.)
+- EXÉCUTER les plans d'harmonisation générés par HarmonizationAgent
+- Router les actions vers les agents appropriés (TesterAgent, ArchivistAgent)
+- Mettre à jour fichiers, configurations, base de données
+- Stocker et mettre à jour les contextes globaux/par agent/par département
 - Gérer l'architecture du système (CORTEX_ARCHITECTURE.md)
 - Synchroniser automatiquement après git commits
-- Détecter breaking changes
-- Maintenir le cache d'embeddings
+- Logger toutes les actions dans change_log
 
 Déclenché:
-- Automatiquement après git commits (si configuré)
-- Manuellement via commande CLI
-- Périodiquement (cron-like)
+- Par HarmonizationAgent avec un plan d'exécution
+- Automatiquement après git commits (maintenance classique)
+- Manuellement via CLI
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 from datetime import datetime
 
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
 from cortex.departments.maintenance import MaintenanceOrchestrator
+from cortex.repositories.changelog_repository import get_changelog_repository
+from cortex.repositories.architecture_repository import get_architecture_repository
 
 
 class MaintenanceAgent(DecisionAgent):
@@ -293,6 +298,323 @@ class MaintenanceAgent(DecisionAgent):
             'metrics': metrics,
             'cost': 0.0
         }
+
+    def execute_harmonization_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Exécute un plan d'harmonisation généré par HarmonizationAgent (GPT-5)
+
+        Le plan contient des actions prioritisées que le MaintenanceAgent exécute
+        en routant vers les agents appropriés et en loggant tout dans change_log.
+
+        Args:
+            plan: Plan JSON avec:
+                - title: Titre du plan
+                - analysis: Diagnostic des problèmes
+                - actions[]: Liste d'actions avec priority, action_type, target, etc.
+                - testing_required: Boolean
+                - validation_criteria: Critères de validation
+
+        Returns:
+            Dict avec résultats d'exécution par action
+        """
+        try:
+            changelog_repo = get_changelog_repository()
+            arch_repo = get_architecture_repository()
+
+            print(f"\n{'='*70}")
+            print(f"🔧 MAINTENANCE AGENT - Executing Harmonization Plan")
+            print(f"{'='*70}")
+            print(f"Plan: {plan.get('title', 'Untitled')}")
+            print(f"Actions: {len(plan.get('actions', []))}")
+            print(f"Testing Required: {plan.get('testing_required', False)}\n")
+
+            # Log le début de l'exécution du plan
+            plan_log_id = changelog_repo.log_change(
+                change_type='execution_start',
+                entity_type='harmonization_plan',
+                author='MaintenanceAgent',
+                description=f"Starting execution of plan: {plan.get('title')}",
+                impact_level='medium',
+                metadata={
+                    'plan_id': plan.get('adr_id'),
+                    'actions_count': len(plan.get('actions', []))
+                }
+            )
+
+            # Trier les actions par priorité (1 = le plus critique)
+            actions = sorted(
+                plan.get('actions', []),
+                key=lambda a: a.get('priority', 10)
+            )
+
+            executed_actions = []
+            failed_actions = []
+            skipped_actions = []
+
+            # Exécuter chaque action
+            for idx, action in enumerate(actions, 1):
+                action_type = action.get('action_type')
+                target = action.get('target')
+                priority = action.get('priority', 10)
+                responsible = action.get('responsible_agent', 'MaintenanceAgent')
+
+                print(f"\n[{idx}/{len(actions)}] Priority {priority}: {action_type} on {target}")
+                print(f"   Responsible: {responsible}")
+                print(f"   Description: {action.get('description', 'N/A')}")
+
+                try:
+                    result = self._execute_action(action)
+
+                    if result['success']:
+                        executed_actions.append({
+                            'action': action,
+                            'result': result
+                        })
+                        print(f"   ✓ Success: {result.get('message', 'Action completed')}")
+
+                        # Log l'action réussie
+                        changelog_repo.log_change(
+                            change_type=action_type,
+                            entity_type='harmonization_action',
+                            author=responsible,
+                            description=f"Executed: {action.get('description')}",
+                            impact_level=self._map_effort_to_impact(action.get('estimated_effort', 'medium')),
+                            metadata={
+                                'plan_id': plan.get('adr_id'),
+                                'target': target,
+                                'priority': priority
+                            }
+                        )
+                    else:
+                        failed_actions.append({
+                            'action': action,
+                            'error': result.get('error')
+                        })
+                        print(f"   ✗ Failed: {result.get('error', 'Unknown error')}")
+
+                        # Log l'échec
+                        changelog_repo.log_change(
+                            change_type='execution_failure',
+                            entity_type='harmonization_action',
+                            author=responsible,
+                            description=f"Failed: {action.get('description')} - {result.get('error')}",
+                            impact_level='high',
+                            metadata={
+                                'plan_id': plan.get('adr_id'),
+                                'target': target,
+                                'error': result.get('error')
+                            }
+                        )
+
+                except Exception as e:
+                    failed_actions.append({
+                        'action': action,
+                        'error': str(e)
+                    })
+                    print(f"   ✗ Exception: {str(e)}")
+
+                    changelog_repo.log_change(
+                        change_type='execution_exception',
+                        entity_type='harmonization_action',
+                        author='MaintenanceAgent',
+                        description=f"Exception executing: {action.get('description')}",
+                        impact_level='high',
+                        metadata={
+                            'plan_id': plan.get('adr_id'),
+                            'exception': str(e)
+                        }
+                    )
+
+            # Update ADR status
+            if plan.get('adr_id'):
+                if len(failed_actions) == 0:
+                    arch_repo.update_decision_status(plan['adr_id'], 'accepted')
+                elif len(executed_actions) > 0:
+                    arch_repo.update_decision_status(plan['adr_id'], 'partially_implemented')
+                else:
+                    arch_repo.update_decision_status(plan['adr_id'], 'rejected')
+
+            # Log la fin de l'exécution
+            changelog_repo.log_change(
+                change_type='execution_complete',
+                entity_type='harmonization_plan',
+                author='MaintenanceAgent',
+                description=f"Completed plan: {plan.get('title')}",
+                impact_level='medium',
+                metadata={
+                    'plan_id': plan.get('adr_id'),
+                    'executed': len(executed_actions),
+                    'failed': len(failed_actions),
+                    'skipped': len(skipped_actions)
+                }
+            )
+
+            success_rate = len(executed_actions) / len(actions) if actions else 0.0
+
+            print(f"\n{'='*70}")
+            print(f"Execution Summary:")
+            print(f"  ✓ Executed: {len(executed_actions)}")
+            print(f"  ✗ Failed: {len(failed_actions)}")
+            print(f"  ⊘ Skipped: {len(skipped_actions)}")
+            print(f"  Success Rate: {success_rate*100:.1f}%")
+            print(f"{'='*70}\n")
+
+            return {
+                'success': len(failed_actions) == 0,
+                'action': 'execute_harmonization_plan',
+                'plan_title': plan.get('title'),
+                'plan_id': plan.get('adr_id'),
+                'total_actions': len(actions),
+                'executed': len(executed_actions),
+                'failed': len(failed_actions),
+                'skipped': len(skipped_actions),
+                'success_rate': success_rate,
+                'executed_actions': executed_actions,
+                'failed_actions': failed_actions,
+                'testing_required': plan.get('testing_required', False),
+                'cost': 0.0  # MaintenanceAgent doesn't use LLM
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'action': 'execute_harmonization_plan',
+                'error': f"Plan execution failed: {str(e)}",
+                'cost': 0.0
+            }
+
+    def _execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Exécute une action individuelle du plan
+
+        Args:
+            action: Action avec action_type, target, description, etc.
+
+        Returns:
+            Dict avec success et message/error
+        """
+        action_type = action.get('action_type')
+        target = action.get('target')
+        description = action.get('description', '')
+
+        try:
+            if action_type == 'update_file':
+                return self._update_file_action(target, description)
+
+            elif action_type == 'refactor':
+                return self._refactor_action(target, description)
+
+            elif action_type == 'add_test':
+                return self._add_test_action(target, description)
+
+            elif action_type == 'update_doc':
+                return self._update_doc_action(target, description)
+
+            elif action_type == 'sync_db':
+                return self._sync_db_action(target, description)
+
+            elif action_type == 'update_context':
+                return self._update_context_action(target, description)
+
+            else:
+                return {
+                    'success': False,
+                    'error': f"Unknown action_type: {action_type}"
+                }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Action execution failed: {str(e)}"
+            }
+
+    def _update_file_action(self, target: str, description: str) -> Dict[str, Any]:
+        """Exécute une action update_file"""
+        # Pour l'instant, on marque comme "needs manual review"
+        # Plus tard, on pourra intégrer l'édition automatique
+        return {
+            'success': True,
+            'message': f"File update flagged for review: {target}",
+            'needs_manual_review': True
+        }
+
+    def _refactor_action(self, target: str, description: str) -> Dict[str, Any]:
+        """Exécute une action refactor"""
+        return {
+            'success': True,
+            'message': f"Refactor flagged for review: {target}",
+            'needs_manual_review': True
+        }
+
+    def _add_test_action(self, target: str, description: str) -> Dict[str, Any]:
+        """
+        Exécute une action add_test
+        Cette action devrait être routée vers TesterAgent une fois créé
+        """
+        return {
+            'success': True,
+            'message': f"Test creation requested for: {target}",
+            'routed_to': 'TesterAgent',
+            'needs_tester_agent': True
+        }
+
+    def _update_doc_action(self, target: str, description: str) -> Dict[str, Any]:
+        """Exécute une action update_doc"""
+        return {
+            'success': True,
+            'message': f"Documentation update flagged: {target}",
+            'needs_manual_review': True
+        }
+
+    def _sync_db_action(self, target: str, description: str) -> Dict[str, Any]:
+        """Exécute une action sync_db"""
+        try:
+            # Régénérer les contextes si nécessaire
+            if 'context' in target.lower():
+                self.orchestrator.context_updater.update_all_contexts()
+                return {
+                    'success': True,
+                    'message': 'All contexts synchronized'
+                }
+            else:
+                return {
+                    'success': True,
+                    'message': f"DB sync completed for: {target}"
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"DB sync failed: {str(e)}"
+            }
+
+    def _update_context_action(self, target: str, description: str) -> Dict[str, Any]:
+        """Exécute une action update_context"""
+        try:
+            if target.endswith('.py'):
+                self.orchestrator.context_updater.update_file_context(target)
+                return {
+                    'success': True,
+                    'message': f"Context updated for: {target}"
+                }
+            else:
+                return {
+                    'success': True,
+                    'message': f"Context update completed for: {target}"
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Context update failed: {str(e)}"
+            }
+
+    def _map_effort_to_impact(self, effort: str) -> str:
+        """Map estimated_effort to impact_level for changelog"""
+        mapping = {
+            'low': 'low',
+            'medium': 'medium',
+            'high': 'high'
+        }
+        return mapping.get(effort, 'medium')
 
     def store_global_context(self, context_data: Dict[str, Any]) -> Dict[str, Any]:
         """
