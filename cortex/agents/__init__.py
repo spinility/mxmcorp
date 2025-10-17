@@ -22,6 +22,8 @@ from cortex.agents.smart_router_agent import SmartRouterAgent, create_smart_rout
 from cortex.agents.maintenance_agent import MaintenanceAgent, create_maintenance_agent
 from cortex.agents.harmonization_agent import HarmonizationAgent, create_harmonization_agent
 from cortex.agents.quality_control_agent import QualityControlAgent, create_quality_control_agent
+from cortex.agents.git_watcher_agent import GitWatcherAgent, create_git_watcher_agent
+from cortex.agents.archivist_agent import ArchivistAgent, create_archivist_agent
 
 __all__ = [
     'TriageAgent',
@@ -33,6 +35,8 @@ __all__ = [
     'MaintenanceAgent',
     'HarmonizationAgent',
     'QualityControlAgent',
+    'GitWatcherAgent',
+    'ArchivistAgent',
     'create_triage_agent',
     'create_quick_actions_agent',
     'create_tooler_agent',
@@ -41,5 +45,7 @@ __all__ = [
     'create_smart_router_agent',
     'create_maintenance_agent',
     'create_harmonization_agent',
-    'create_quality_control_agent'
+    'create_quality_control_agent',
+    'create_git_watcher_agent',
+    'create_archivist_agent'
 ]
