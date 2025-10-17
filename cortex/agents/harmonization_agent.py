@@ -1,21 +1,27 @@
 """
-Harmonization Agent - Assure cohérence, synergie et non-duplication architecturale
+Harmonization Agent - Génère des plans d'harmonisation architecturale
 
-ROLE: DIRECTEUR (Décision + Coordination) - Niveau 3 de la hiérarchie
-TIER: DEEPSEEK pour analyses architecturales complexes
+ROLE: DIRECTEUR (Décision stratégique) - Niveau 3 de la hiérarchie
+TIER: GPT-5 pour décisions architecturales critiques
 
-Responsabilités:
-- Vérifier que chaque ajout à l'architecture soit conforme
-- Détecter les duplications de fonctionnalités entre agents/tools
-- Assurer la synergie entre composants
-- Valider l'attribution des tâches aux bons agents
-- Suggérer des consolidations et refactorings
-- Maintenir la cohérence du système
+NOUVEAU WORKFLOW:
+1. HarmonizationAgent (GPT-5) → Génère un PLAN d'harmonisation détaillé
+2. Plan transmis à MaintenanceAgent → Exécute les changements
+3. Plan transmis à TesterAgent → Détermine si tests nécessaires
+4. Résultats transmis à CommunicationsAgent → Résumé pour l'utilisateur
+
+Responsabilités (PLANIFICATION UNIQUEMENT):
+- Analyser les conflits architecturaux
+- Détecter les duplications et incohérences
+- Générer un plan d'harmonisation détaillé avec actions priorit isées
+- Évaluer l'impact et les risques
+- Proposer alternatives si nécessaire
+- NE JAMAIS EXÉCUTER - uniquement planifier
 
 Déclenché:
-- Avant ajout de nouveaux agents/tools
-- Périodiquement pour audit complet
-- Sur demande via CLI (cortex harmonize)
+- Par GitWatcherAgent quand changements high/critical
+- Avant ajout de nouveaux composants majeurs
+- Sur demande explicite
 """
 
 from typing import Dict, Any, Optional, List
@@ -38,7 +44,7 @@ class HarmonizationAgent(DecisionAgent):
             llm_client: Client LLM pour l'analyse
         """
         super().__init__(llm_client, specialization="harmonization")
-        self.tier = ModelTier.DEEPSEEK  # Analyse complexe mais pas critique
+        self.tier = ModelTier.GPT5  # GPT-5 pour décisions architecturales critiques
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -622,6 +628,215 @@ class HarmonizationAgent(DecisionAgent):
         """
         # Simplified validation
         return True
+
+    def generate_harmonization_plan(
+        self,
+        changed_files: List[Dict[str, Any]],
+        git_analysis: Dict[str, Any],
+        conflicts: Optional[Dict[str, Any]] = None,
+        architecture: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Génère un plan d'harmonisation détaillé via GPT-5
+
+        Cette méthode NE FAIT QUE PLANIFIER, elle n'exécute rien.
+        Le plan sera transmis au MaintenanceAgent pour exécution.
+
+        Args:
+            changed_files: Fichiers modifiés
+            git_analysis: Analyse du GitWatcherAgent
+            conflicts: Conflits détectés (optionnel)
+            architecture: Architecture actuelle (optionnel)
+
+        Returns:
+            Plan d'harmonisation détaillé avec actions, priorités, impacts
+        """
+        print(f"\n{'='*70}")
+        print("🎯 HARMONIZATION AGENT - Génération du plan (GPT-5)")
+        print(f"{'='*70}\n")
+
+        # Préparer le contexte pour le LLM
+        if architecture is None:
+            architecture = self._scan_architecture()
+
+        context_summary = {
+            'files_changed': len(changed_files),
+            'impact_level': git_analysis.get('impact_level', 'unknown'),
+            'affected_areas': git_analysis.get('affected_areas', []),
+            'critical_files': git_analysis.get('critical_files', []),
+            'architecture': {
+                'agents_count': len(architecture.get('agents', [])),
+                'tools_count': len(architecture.get('tools', [])),
+                'departments_count': len(architecture.get('departments', []))
+            },
+            'conflicts': conflicts or {}
+        }
+
+        # Construire le prompt pour GPT-5
+        prompt = f"""Tu es l'Harmonization Agent de Cortex, responsable de la cohérence architecturale.
+
+Tu viens de recevoir une notification de changements dans le codebase avec l'analyse suivante :
+
+**Fichiers modifiés ({len(changed_files)}):**
+{json.dumps(changed_files, indent=2)}
+
+**Analyse d'impact:**
+{json.dumps(git_analysis, indent=2)}
+
+**Contexte système:**
+{json.dumps(context_summary, indent=2)}
+
+**Ta mission (PLANIFICATION UNIQUEMENT):**
+1. Analyser les impacts architecturaux de ces changements
+2. Identifier les incohérences, conflits, dépendances cassées
+3. Générer un plan d'harmonisation détaillé (NE PAS EXÉCUTER)
+
+Le plan doit contenir:
+- **Titre**: Résumé du plan
+- **Analyse**: Diagnostic complet des problèmes
+- **Actions** (liste ordonnée par priorité):
+  * priority: 1-10 (1 = critique)
+  * action_type: 'update_file', 'refactor', 'add_test', 'update_doc', 'sync_db'
+  * target: Fichier/composant cible
+  * description: Description claire
+  * responsible_agent: 'MaintenanceAgent', 'TesterAgent', 'ArchivistAgent'
+  * estimated_effort: 'low', 'medium', 'high'
+  * rationale: Pourquoi cette action est nécessaire
+- **Impacts**: Conséquences attendues
+- **Risks**: Risques identifiés
+- **Alternatives**: Autres approches possibles (si applicable)
+- **Testing_required**: Boolean - tests nécessaires?
+- **Validation_criteria**: Comment valider le succès
+
+Réponds UNIQUEMENT en JSON valide (pas de markdown):
+{{
+    "title": "...",
+    "analysis": "...",
+    "actions": [
+        {{
+            "priority": 1,
+            "action_type": "...",
+            "target": "...",
+            "description": "...",
+            "responsible_agent": "...",
+            "estimated_effort": "...",
+            "rationale": "..."
+        }}
+    ],
+    "impacts": "...",
+    "risks": "...",
+    "alternatives": "...",
+    "testing_required": true,
+    "validation_criteria": ["..."]
+}}"""
+
+        try:
+            print("1. Calling GPT-5 for harmonization plan generation...")
+
+            # Appel GPT-5 pour génération du plan
+            llm_response = self.llm_client.call(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Tu es un architecte logiciel expert qui génère des plans d'harmonisation détaillés. Tu PLANIFIES uniquement, tu n'EXÉCUTES jamais."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                tier=self.tier,
+                max_tokens=4000,  # Plan détaillé
+                temperature=0.3  # Précision architecturale
+            )
+
+            print("2. Parsing GPT-5 response...")
+
+            # Parser la réponse JSON
+            plan_data = self._parse_llm_plan(llm_response.content)
+
+            if 'error' in plan_data:
+                print(f"   ❌ Failed to parse plan: {plan_data['error']}")
+                return {
+                    'success': False,
+                    'error': plan_data['error'],
+                    'raw_response': llm_response.content[:500]
+                }
+
+            print(f"3. Plan generated successfully")
+            print(f"   ✓ Title: {plan_data.get('title', 'N/A')}")
+            print(f"   ✓ Actions: {len(plan_data.get('actions', []))}")
+            print(f"   ✓ Testing required: {plan_data.get('testing_required', False)}")
+            print()
+
+            # Enregistrer le plan comme ADR
+            from cortex.repositories.architecture_repository import get_architecture_repository
+            arch_repo = get_architecture_repository()
+
+            adr_id = arch_repo.add_decision(
+                title=f"Harmonization Plan: {plan_data.get('title', 'Auto-generated')}",
+                context=json.dumps(context_summary, indent=2),
+                decision=plan_data.get('analysis', 'GPT-5 generated harmonization plan'),
+                consequences=plan_data.get('impacts', 'See plan details'),
+                alternatives=plan_data.get('alternatives'),
+                status='proposed',
+                author='HarmonizationAgent (GPT-5)'
+            )
+
+            plan_data['adr_id'] = adr_id
+            plan_data['success'] = True
+            plan_data['cost'] = llm_response.cost
+            plan_data['model'] = llm_response.model
+            plan_data['timestamp'] = datetime.now().isoformat()
+
+            return plan_data
+
+        except Exception as e:
+            print(f"   ❌ Plan generation failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+            return {
+                'success': False,
+                'error': str(e),
+                'fallback_actions': [
+                    {
+                        'priority': 1,
+                        'action_type': 'manual_review',
+                        'target': 'all_changed_files',
+                        'description': 'Manual review required due to plan generation failure',
+                        'responsible_agent': 'Human',
+                        'estimated_effort': 'high',
+                        'rationale': 'GPT-5 plan generation failed'
+                    }
+                ]
+            }
+
+    def _parse_llm_plan(self, llm_content: str) -> Dict[str, Any]:
+        """Parse la réponse JSON du LLM"""
+        try:
+            # Nettoyer le contenu (enlever markdown si présent)
+            content = llm_content.strip()
+
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+
+            # Parser le JSON
+            plan = json.loads(content)
+            return plan
+
+        except json.JSONDecodeError as e:
+            return {
+                'error': f'JSON parse error: {e}',
+                'raw_content': llm_content[:500]
+            }
+        except Exception as e:
+            return {
+                'error': f'Unexpected error: {e}',
+                'raw_content': llm_content[:500]
+            }
 
 
 def create_harmonization_agent(llm_client: LLMClient) -> HarmonizationAgent:
