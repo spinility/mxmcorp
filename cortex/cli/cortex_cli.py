@@ -70,6 +70,9 @@ from cortex.departments.optimization import OptimizationOrchestrator
 # Cortex managers
 from cortex.core.todo_manager_wrapper import create_todo_manager, TaskStatus  # Using TodoDB backend
 from cortex.core.conversation_manager import create_conversation_manager
+from cortex.core.auto_task_manager import AutoTaskManager
+from cortex.core.file_cleanup_manager import FileCleanupManager
+from cortex.tools.task_management_tools import TaskManager
 
 
 class CortexCLI:
@@ -100,6 +103,11 @@ class CortexCLI:
         # Core managers
         self.todo_manager = create_todo_manager()
         self.conversation_manager = create_conversation_manager(self.llm_client)
+
+        # Self-management tools
+        self.auto_task_manager = AutoTaskManager(self.todo_manager)
+        self.file_cleanup_manager = FileCleanupManager()
+        self.task_manager = TaskManager()
 
         # Specialized agents
         self.triage_agent = create_triage_agent(self.llm_client)
@@ -173,10 +181,48 @@ class CortexCLI:
         self.ui.info(f"You can also type natural language requests directly (e.g., {self.ui.color('create a file test.md', Color.GREEN)})")
         print()
 
+        # STARTUP: Auto-scan documentation for tasks
+        print(f"{self.ui.color('→', Color.BRIGHT_BLUE)} Scanning documentation for tasks...")
+        try:
+            scan_result = self.auto_task_manager.scan_and_create_tasks()
+            if scan_result['success'] and scan_result['tasks_created'] > 0:
+                print(f"  {self.ui.color('✓', Color.GREEN)} Created {scan_result['tasks_created']} new tasks from documentation")
+            print()
+        except Exception as e:
+            print(f"  {self.ui.color('⚠️', Color.YELLOW)} Task scan failed: {str(e)[:50]}")
+            print()
+
         # Main loop
         while self.running:
             try:
-                # Prompt with Ctrl+E support
+                # CRITICAL: Check for pending tasks BEFORE accepting user input
+                next_task_result = self.task_manager.get_next_task()
+
+                if next_task_result['success'] and next_task_result['task']:
+                    task = next_task_result['task']
+
+                    print()
+                    print(self.ui.color("━" * 80, Color.MAGENTA))
+                    print(f"{self.ui.color('📋 AUTO-TASK EXECUTION', Color.BRIGHT_MAGENTA, bold=True)}")
+                    print(self.ui.color("━" * 80, Color.MAGENTA))
+                    print()
+                    print(f"  {self.ui.color('Task ID:', Color.CYAN)} {task['id']}")
+                    print(f"  {self.ui.color('Description:', Color.CYAN)} {task['description']}")
+                    print(f"  {self.ui.color('Priority:', Color.CYAN)} {task['priority']} | {self.ui.color('Tier:', Color.CYAN)} {task['min_tier']}")
+                    if task.get('source_file'):
+                        print(f"  {self.ui.color('Source:', Color.BRIGHT_BLACK)} {task['source_file']}")
+                    print()
+
+                    # Execute task automatically
+                    self._execute_auto_task(task)
+
+                    # Cleanup files generated during task
+                    self.file_cleanup_manager.cleanup_all_tracked(create_backup=True)
+
+                    # Continue to next task (don't accept user input)
+                    continue
+
+                # No pending tasks - Accept user input
                 prompt = f"{self.ui.color('cortex', Color.CYAN, bold=True)} {self.ui.color('❯', Color.BRIGHT_BLUE)} "
                 command = self.interactive_prompt.prompt(prompt).strip()
 
@@ -969,6 +1015,75 @@ Total Cost: ${sum(self.costs.values()):.6f}
         if status:
             print(f"   {self.ui.color(status, Color.BRIGHT_BLACK)}")
         print(self.ui.color("━" * 80, Color.CYAN))
+
+    def _execute_auto_task(self, task: Dict):
+        """
+        Execute a task automatically with full metrics tracking
+
+        Args:
+            task: Task dictionary from TaskManager
+        """
+        import time
+        import json
+
+        task_id = task['id']
+        start_time = time.time()
+
+        # Update task status to in_progress
+        self.task_manager.update_task(task_id, status='in_progress', assigned_model=None)
+
+        # Build task request from description and context
+        task_request = task['description']
+        if task.get('context'):
+            task_request += f"\n\nContext: {task['context']}"
+
+        # Track files to cleanup
+        files_created = []
+
+        try:
+            # Execute task through normal workflow
+            self.cmd_task(task_request)
+
+            duration = time.time() - start_time
+
+            # Mark task as complete with metrics
+            from cortex.tools.task_management_tools import TaskMetrics
+
+            metrics = TaskMetrics(
+                execution_duration=duration,
+                total_tokens=self.total_tokens,
+                prompt_tokens=0,  # Would need to track this from response
+                completion_tokens=0,
+                cost_usd=self.total_cost,
+                success_score=1.0,  # Auto-task completed successfully
+                tools_used=[],  # Would need to extract from response
+                tool_sequence=[],
+                context_files=[],
+                conversation=self.conversation_history[-1:] if self.conversation_history else []
+            )
+
+            self.task_manager.mark_task_complete(task_id, metrics=metrics, success_score=1.0)
+
+            print()
+            print(f"{self.ui.color('✓', Color.GREEN)} Auto-task {task_id} completed successfully!")
+            print(f"  Duration: {duration:.2f}s | Cost: ${metrics.cost_usd:.6f}")
+            print()
+
+        except Exception as e:
+            # Task failed - update with error
+            duration = time.time() - start_time
+            error_msg = str(e)[:500]
+
+            self.task_manager.update_task(
+                task_id,
+                status='failed',
+                notes=f"Error: {error_msg}"
+            )
+
+            print()
+            print(f"{self.ui.color('✗', Color.RED)} Auto-task {task_id} failed!")
+            print(f"  Error: {error_msg}")
+            print()
 
     def _handle_planning_request(self, description: str):
         """
