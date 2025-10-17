@@ -98,17 +98,25 @@ REQUÊTE: "{user_request}"
 
 CACHE: {"✓ Cache hits disponibles" if has_cache else "✗ Pas de cache"}
 
-CRITÈRES pour ROUTE DIRECTE (répondre immédiatement, sans Context Agent):
-- Conversation simple (salutation, question générale, "comment ça va")
-- Requête d'information simple (définition, explication basique)
-- Cache hits disponibles avec info pertinente
-- Pas d'action complexe nécessaire
+CRITÈRES pour ROUTE DIRECTE (répondre immédiatement):
+- Conversation simple (salutation, question générale)
+- Requête d'information simple (définition, explication)
+- Pas d'outils nécessaires
 
-CRITÈRES pour ROUTE EXPERT (passer à DeepSeek avec Context Agent):
-- Action concrète nécessitant tools (créer fichier, scraper, git, etc.)
-- Analyse complexe nécessitant contexte applicatif
-- Pas de cache ou cache insuffisant
-- Besoin de raisonnement approfondi
+CRITÈRES pour ROUTE EXPERT:
+- Utilise des outils (fichiers, git, web, etc.)
+- Analyse ou génération de contenu
+- Raisonnement approfondi nécessaire
+
+CRITÈRES pour needs_context (besoin de Context Agent):
+- true: Besoin de comprendre le code/architecture existante
+- true: Analyse de dépendances ou impacts
+- true: Modification de code existant
+- false: Action simple (delete, read, list fichiers)
+- false: Création de nouveau contenu
+- false: Opération git simple
+
+IMPORTANT: Une simple opération de fichier (delete, read, search) ne nécessite PAS de contexte!
 
 Réponds UNIQUEMENT avec un JSON:
 {{
@@ -145,12 +153,14 @@ Réponds UNIQUEMENT avec un JSON:
             # Fallback: heuristiques simples
             user_lower = user_request.lower()
 
-            # Mots-clés pour actions complexes
+            # Mots-clés pour actions nécessitant tools
             action_keywords = [
                 'create', 'crée', 'make', 'fais',
                 'scrape', 'extract', 'extrais',
                 'git', 'commit', 'push',
-                'install', 'pip', 'npm'
+                'install', 'pip', 'npm',
+                'delete', 'efface', 'remove', 'supprime',
+                'search', 'find', 'cherche', 'trouve'
             ]
 
             # Mots-clés pour conversations simples

@@ -59,6 +59,7 @@ class ModelRouter:
         self._simple_patterns = [
             r"(parse|extract|classify|validate|list|count|find)",
             r"(get|read|show|display|print)",
+            r"(delete|remove|efface|supprime|move|rename|copy)",
         ]
 
         self._complex_patterns = [
@@ -150,7 +151,10 @@ class ModelRouter:
             factors["length"] = 7.0
 
         # Facteur 2: Verbes d'action
-        simple_verbs = ["get", "show", "list", "count", "find", "read", "display"]
+        simple_verbs = [
+            "get", "show", "list", "count", "find", "read", "display",
+            "delete", "remove", "efface", "supprime", "move", "rename", "copy"
+        ]
         medium_verbs = ["create", "generate", "write", "update", "modify", "calculate"]
         complex_verbs = ["analyze", "optimize", "design", "architect", "refactor", "explain"]
         critical_verbs = ["strategize", "decide", "evaluate", "innovate", "solve"]
