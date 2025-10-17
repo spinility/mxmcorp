@@ -15,6 +15,7 @@ L'agent tourne en arrière-plan et est déclenché après chaque commit/modifica
 import subprocess
 import re
 import os
+import time
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
@@ -24,6 +25,7 @@ from cortex.core.llm_client import LLMClient
 from cortex.repositories.changelog_repository import get_changelog_repository
 from cortex.repositories.file_repository import get_file_repository
 from cortex.repositories.codebase_repository import get_codebase_repository
+from cortex.core.agent_memory import get_agent_memory
 
 
 class GitWatcherAgent(CoordinationAgent):
@@ -49,6 +51,9 @@ class GitWatcherAgent(CoordinationAgent):
         self.changelog_repo = get_changelog_repository()
         self.file_repo = get_file_repository()
         self.codebase_repo = get_codebase_repository()
+
+        # Memory
+        self.memory = get_agent_memory('intelligence', 'git_watcher')
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """Détecte si la requête concerne git/changements"""
@@ -108,6 +113,8 @@ class GitWatcherAgent(CoordinationAgent):
         Surveille les changements git non committés
         Analyse git status + git diff
         """
+        start_time = time.time()
+
         try:
             # Git status pour voir les fichiers modifiés
             status_result = subprocess.run(
@@ -142,7 +149,7 @@ class GitWatcherAgent(CoordinationAgent):
             # Décider si harmonisation nécessaire
             needs_harmonization = analysis['impact_level'] in ['high', 'critical']
 
-            return {
+            result = {
                 'status': 'changes_detected',
                 'changed_files': changed_files,
                 'analysis': analysis,
@@ -150,15 +157,58 @@ class GitWatcherAgent(CoordinationAgent):
                 'timestamp': datetime.now().isoformat()
             }
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Watch git changes: {len(changed_files)} files",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_watch_timestamp': datetime.now().isoformat(),
+                'files_changed': len(changed_files),
+                'impact_level': analysis['impact_level'],
+                'needs_harmonization': needs_harmonization
+            })
+
+            # Detect patterns in change types
+            for file_info in changed_files:
+                self.memory.add_pattern(
+                    f'change_type_{file_info["change_type"]}',
+                    {
+                        'change_type': file_info['change_type'],
+                        'path': file_info['path'],
+                        'impact': analysis['impact_level']
+                    }
+                )
+
+            return result
+
         except subprocess.CalledProcessError as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'status': 'error',
                 'message': f'Git command failed: {e}',
                 'error': str(e)
             }
 
+            # Record failure to memory
+            self.memory.record_execution(
+                request="Watch git changes",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
+
     def analyze_last_commit(self) -> Dict[str, Any]:
         """Analyse le dernier commit git"""
+        start_time = time.time()
+
         try:
             # Obtenir le dernier commit
             commit_info = subprocess.run(
@@ -198,7 +248,7 @@ class GitWatcherAgent(CoordinationAgent):
                 }
             )
 
-            return {
+            result = {
                 'status': 'analyzed',
                 'commit': {
                     'hash': commit_hash,
@@ -211,15 +261,57 @@ class GitWatcherAgent(CoordinationAgent):
                 'needs_harmonization': analysis['impact_level'] in ['high', 'critical']
             }
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Analyze last commit: {commit_hash[:8]}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_commit_analyzed': commit_hash,
+                'last_commit_message': message[:100],
+                'last_commit_author': author,
+                'last_commit_impact': analysis['impact_level']
+            })
+
+            # Detect patterns in commit analysis
+            self.memory.add_pattern(
+                f'commit_impact_{analysis["impact_level"]}',
+                {
+                    'impact': analysis['impact_level'],
+                    'files_changed': len(changed_files),
+                    'author': author
+                }
+            )
+
+            return result
+
         except subprocess.CalledProcessError as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'status': 'error',
                 'message': f'Failed to analyze commit: {e}',
                 'error': str(e)
             }
 
+            # Record failure to memory
+            self.memory.record_execution(
+                request="Analyze last commit",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
+
     def analyze_git_diff(self, file_paths: Optional[List[str]] = None) -> Dict[str, Any]:
         """Analyse git diff pour des fichiers spécifiques ou tous"""
+        start_time = time.time()
+
         try:
             cmd = ['git', 'diff', '--name-status']
             if file_paths:
@@ -235,19 +327,60 @@ class GitWatcherAgent(CoordinationAgent):
             changed_files = self._parse_git_diff_tree(diff_result.stdout)
             analysis = self._analyze_changed_files(changed_files)
 
-            return {
+            result = {
                 'status': 'analyzed',
                 'changed_files': changed_files,
                 'analysis': analysis,
                 'needs_harmonization': analysis['impact_level'] in ['high', 'critical']
             }
 
+            # Record to memory
+            duration = time.time() - start_time
+            file_paths_str = ', '.join(file_paths) if file_paths else 'all files'
+            self.memory.record_execution(
+                request=f"Analyze git diff: {file_paths_str}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_diff_timestamp': datetime.now().isoformat(),
+                'last_diff_files_count': len(changed_files),
+                'last_diff_impact': analysis['impact_level']
+            })
+
+            # Detect patterns in diff analysis
+            if file_paths:
+                self.memory.add_pattern(
+                    'specific_file_diff',
+                    {
+                        'file_paths': file_paths,
+                        'impact': analysis['impact_level'],
+                        'files_changed': len(changed_files)
+                    }
+                )
+
+            return result
+
         except subprocess.CalledProcessError as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'status': 'error',
                 'message': f'Git diff failed: {e}',
                 'error': str(e)
             }
+
+            # Record failure to memory
+            self.memory.record_execution(
+                request="Analyze git diff",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
 
     def _parse_git_status(self, status_output: str) -> List[Dict[str, Any]]:
         """Parse la sortie de git status --porcelain"""

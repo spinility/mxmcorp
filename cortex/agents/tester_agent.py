@@ -31,6 +31,7 @@ import subprocess
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ from enum import Enum
 
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
+from cortex.core.agent_memory import get_agent_memory
 from cortex.repositories.changelog_repository import get_changelog_repository
 from cortex.repositories.file_repository import get_file_repository
 
@@ -153,6 +155,7 @@ class TesterAgent(DecisionAgent):
         # Initialiser DecisionAgent avec spécialisation "testing"
         super().__init__(llm_client, specialization="testing")
         self.test_history: List[ValidationReport] = []
+        self.memory = get_agent_memory('optimization', 'tester')
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -265,6 +268,8 @@ class TesterAgent(DecisionAgent):
                 - missing_tests: Liste des tests manquants
                 - test_requests: Requêtes pour ToolerAgent
         """
+        start_time = time.time()
+
         try:
             changelog_repo = get_changelog_repository()
 
@@ -353,7 +358,9 @@ class TesterAgent(DecisionAgent):
             print(f"  Requests for ToolerAgent: {len(test_requests)}")
             print(f"{'='*70}\n")
 
-            return {
+            duration = time.time() - start_time
+
+            result = {
                 'success': True,
                 'action': 'analyze_test_requirements',
                 'tests_required': len(required_tests) > 0,
@@ -365,13 +372,56 @@ class TesterAgent(DecisionAgent):
                 'cost': 0.0  # Base prompt logic, no LLM call
             }
 
+            # Enregistrer dans la mémoire
+            self.memory.record_execution(
+                request=f"Analyze test requirements for {len(changed_files)} files",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Mettre à jour l'état
+            self.memory.update_state({
+                'last_analysis_timestamp': datetime.now().isoformat(),
+                'total_tests_required': len(required_tests),
+                'total_tests_missing': len(missing_tests),
+                'coverage_status': result['coverage_status']
+            })
+
+            # Détecter patterns dans les types de tests requis
+            for test in required_tests:
+                test_type = test.get('test_type')
+                priority = test.get('priority')
+                self.memory.add_pattern(
+                    f'test_type_{test_type}',
+                    {
+                        'type': test_type,
+                        'priority': priority,
+                        'rationale': test.get('rationale')
+                    }
+                )
+
+            return result
+
         except Exception as e:
-            return {
+            duration = time.time() - start_time
+
+            error_result = {
                 'success': False,
                 'action': 'analyze_test_requirements',
                 'error': f"Test analysis failed: {str(e)}",
                 'cost': 0.0
             }
+
+            # Enregistrer l'échec dans la mémoire
+            self.memory.record_execution(
+                request=f"Analyze test requirements (failed)",
+                result=error_result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return error_result
 
     def _determine_test_needed(
         self,

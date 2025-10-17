@@ -13,9 +13,12 @@ Responsabilités:
 
 from typing import Dict, Any, Optional, Tuple
 import json
+import time
+from datetime import datetime
 
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult
+from cortex.core.agent_memory import get_agent_memory
 
 
 class TriageAgent(DecisionAgent):
@@ -29,6 +32,7 @@ class TriageAgent(DecisionAgent):
             llm_client: Client LLM pour l'analyse
         """
         super().__init__(llm_client, specialization="triage")
+        self.memory = get_agent_memory('communication', 'triage')
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -88,6 +92,8 @@ class TriageAgent(DecisionAgent):
             - needs_context: True si besoin de Context Agent
             - enhanced_request: Requête bonifiée si route='expert'
         """
+        start_time = time.time()
+
         # Vérifier si cache_hits disponible
         cache_hits = context.get('cache_hits', []) if context else []
         has_cache = len(cache_hits) > 0
@@ -164,6 +170,33 @@ Réponds UNIQUEMENT avec un JSON:
             else:
                 result['enhanced_request'] = user_request
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Triage: {user_request[:100]}",
+                result=result,
+                duration=duration,
+                cost=response.cost
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_triage_timestamp': datetime.now().isoformat(),
+                'last_route': result['route'],
+                'last_complexity': result['complexity']
+            })
+
+            # Detect patterns in triage routes
+            self.memory.add_pattern(
+                f'route_{result["route"]}',
+                {
+                    'route': result['route'],
+                    'complexity': result['complexity'],
+                    'confidence': result['confidence'],
+                    'needs_context': result.get('needs_context', False)
+                }
+            )
+
             return result
 
         except (json.JSONDecodeError, KeyError) as e:
@@ -217,9 +250,10 @@ Réponds UNIQUEMENT avec un JSON:
             is_simple = any(kw in user_lower for kw in simple_keywords)
             is_knowledge = any(kw in user_lower for kw in knowledge_keywords)
 
+            # Déterminer le résultat basé sur les heuristiques
             # Priorité 1: Planification
             if is_planning:
-                return {
+                result = {
                     'route': 'planner',
                     'confidence': 0.75,
                     'reason': 'Planning request detected',
@@ -231,7 +265,7 @@ Réponds UNIQUEMENT avec un JSON:
             # Priorité 2: Quick action (vérification simple READ-ONLY)
             # MAIS SEULEMENT si pas de modification demandée
             elif is_quick and not is_expert:
-                return {
+                result = {
                     'route': 'quick',
                     'confidence': 0.80,
                     'reason': 'Simple verification with read-only tool',
@@ -242,7 +276,7 @@ Réponds UNIQUEMENT avec un JSON:
                 }
             # Priorité 3: Expert (modification ou opération complexe)
             elif is_expert or (is_quick and is_expert):
-                return {
+                result = {
                     'route': 'expert',
                     'confidence': 0.75,
                     'reason': 'Tool usage with modification or complex operation',
@@ -253,7 +287,7 @@ Réponds UNIQUEMENT avec un JSON:
                 }
             # Priorité 4: Conversation simple (salutation) ou connaissance pure
             elif is_simple or is_knowledge:
-                return {
+                result = {
                     'route': 'direct',
                     'confidence': 0.70,
                     'reason': 'General knowledge question or simple conversation',
@@ -264,7 +298,7 @@ Réponds UNIQUEMENT avec un JSON:
                 }
             # Priorité 5: Par défaut expert
             else:
-                return {
+                result = {
                     'route': 'expert',
                     'confidence': 0.60,
                     'reason': 'Complex request or unclear intent',
@@ -273,6 +307,36 @@ Réponds UNIQUEMENT avec un JSON:
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
+
+            # Record fallback to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Triage (fallback): {user_request[:100]}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_triage_timestamp': datetime.now().isoformat(),
+                'last_route': result['route'],
+                'last_complexity': result['complexity'],
+                'fallback_used': True
+            })
+
+            # Detect patterns in fallback triage routes
+            self.memory.add_pattern(
+                f'fallback_route_{result["route"]}',
+                {
+                    'route': result['route'],
+                    'complexity': result['complexity'],
+                    'confidence': result['confidence'],
+                    'reason': result['reason']
+                }
+            )
+
+            return result
 
     def _enhance_request(self, user_request: str) -> str:
         """

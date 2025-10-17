@@ -30,9 +30,12 @@ Design:
 """
 
 from typing import Dict, Any, Optional, List
+import time
+from datetime import datetime
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.tools.standard_tool import StandardTool
 from cortex.tools.tool_executor import ToolExecutor
+from cortex.core.agent_memory import get_agent_memory
 
 
 class QuickActionsAgent:
@@ -72,6 +75,9 @@ class QuickActionsAgent:
         # Stats
         self.executions = 0
         self.total_cost = 0.0
+
+        # Memory
+        self.memory = get_agent_memory('execution', 'quick_actions')
 
     def can_handle(self, request: str) -> bool:
         """
@@ -126,16 +132,28 @@ class QuickActionsAgent:
         Returns:
             Dict avec success, content, cost, tool_used
         """
+        start_time = time.time()
         self.executions += 1
 
         # Vérifier si on peut gérer
         if not self.can_handle(request):
-            return {
+            duration = time.time() - start_time
+            result = {
                 'success': False,
                 'error': 'Request too complex for Quick Actions Agent',
                 'should_escalate': True,
                 'cost': 0.0
             }
+
+            # Record rejection to memory
+            self.memory.record_execution(
+                request=f"Quick action rejected: {request[:100]}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
 
         # Prompt minimaliste pour NANO
         system_prompt = """Tu es un agent d'actions RAPIDES. Règles:
@@ -177,19 +195,30 @@ IMPORTANT: Si requête trop complexe, réponds "ESCALATE: [raison]"."""
 
             # Vérifier si demande escalade
             if response.content and 'ESCALATE:' in response.content:
-                return {
+                duration = time.time() - start_time
+                result = {
                     'success': False,
                     'error': response.content.split('ESCALATE:')[1].strip(),
                     'should_escalate': True,
                     'cost': response.cost
                 }
 
+                # Record escalation to memory
+                self.memory.record_execution(
+                    request=f"Quick action escalated: {request[:100]}",
+                    result=result,
+                    duration=duration,
+                    cost=response.cost
+                )
+
+                return result
+
             # Extraire outil utilisé
             tool_used = None
             if response.tool_calls and len(response.tool_calls) > 0:
                 tool_used = response.tool_calls[0].get('name')
 
-            return {
+            result = {
                 'success': True,
                 'content': response.content,
                 'tool_used': tool_used,
@@ -200,13 +229,54 @@ IMPORTANT: Si requête trop complexe, réponds "ESCALATE: [raison]"."""
                 'model': response.model
             }
 
+            # Record success to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Quick action: {request[:100]}",
+                result=result,
+                duration=duration,
+                cost=response.cost
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_execution_timestamp': datetime.now().isoformat(),
+                'last_tool_used': tool_used,
+                'total_executions': self.executions,
+                'total_cost': self.total_cost
+            })
+
+            # Detect patterns in tool usage
+            if tool_used:
+                self.memory.add_pattern(
+                    f'tool_used_{tool_used}',
+                    {
+                        'tool': tool_used,
+                        'request_type': request[:50],
+                        'success': True
+                    }
+                )
+
+            return result
+
         except Exception as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'success': False,
                 'error': f'Quick action failed: {str(e)}',
                 'should_escalate': True,
                 'cost': 0.0
             }
+
+            # Record failure to memory
+            self.memory.record_execution(
+                request=f"Quick action failed: {request[:100]}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
 
     def get_stats(self) -> Dict[str, Any]:
         """Retourne les statistiques"""

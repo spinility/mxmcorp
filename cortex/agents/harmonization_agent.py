@@ -26,11 +26,13 @@ Déclenché:
 
 from typing import Dict, Any, Optional, List
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
+from cortex.core.agent_memory import get_agent_memory
 
 
 class HarmonizationAgent(DecisionAgent):
@@ -45,6 +47,7 @@ class HarmonizationAgent(DecisionAgent):
         """
         super().__init__(llm_client, specialization="harmonization")
         self.tier = ModelTier.GPT5  # GPT-5 pour décisions architecturales critiques
+        self.memory = get_agent_memory('maintenance', 'harmonization')
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -651,6 +654,8 @@ class HarmonizationAgent(DecisionAgent):
         Returns:
             Plan d'harmonisation détaillé avec actions, priorités, impacts
         """
+        start_time = time.time()
+
         print(f"\n{'='*70}")
         print("🎯 HARMONIZATION AGENT - Génération du plan (GPT-5)")
         print(f"{'='*70}\n")
@@ -789,6 +794,37 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown):
             plan_data['model'] = llm_response.model
             plan_data['timestamp'] = datetime.now().isoformat()
 
+            duration = time.time() - start_time
+
+            # Enregistrer dans la mémoire
+            self.memory.record_execution(
+                request=f"Generate harmonization plan: {plan_data.get('title', 'Untitled')}",
+                result=plan_data,
+                duration=duration,
+                cost=llm_response.cost
+            )
+
+            # Mettre à jour l'état
+            self.memory.update_state({
+                'last_plan_id': adr_id,
+                'last_plan_title': plan_data.get('title'),
+                'last_generation_timestamp': datetime.now().isoformat(),
+                'total_actions_generated': len(plan_data.get('actions', []))
+            })
+
+            # Détecter patterns dans les types d'actions générés
+            actions = plan_data.get('actions', [])
+            for action in actions:
+                action_type = action.get('action_type')
+                self.memory.add_pattern(
+                    f'action_type_{action_type}',
+                    {
+                        'type': action_type,
+                        'priority': action.get('priority'),
+                        'responsible_agent': action.get('responsible_agent')
+                    }
+                )
+
             return plan_data
 
         except Exception as e:
@@ -796,7 +832,9 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown):
             import traceback
             traceback.print_exc()
 
-            return {
+            duration = time.time() - start_time
+
+            error_result = {
                 'success': False,
                 'error': str(e),
                 'fallback_actions': [
@@ -811,6 +849,16 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown):
                     }
                 ]
             }
+
+            # Enregistrer l'échec dans la mémoire
+            self.memory.record_execution(
+                request="Generate harmonization plan (failed)",
+                result=error_result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return error_result
 
     def _parse_llm_plan(self, llm_content: str) -> Dict[str, Any]:
         """Parse la réponse JSON du LLM"""

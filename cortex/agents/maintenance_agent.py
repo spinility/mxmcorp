@@ -24,10 +24,12 @@ Déclenché:
 
 from typing import Dict, Any, Optional, List
 import json
+import time
 from datetime import datetime
 
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
+from cortex.core.agent_memory import get_agent_memory
 from cortex.departments.maintenance import MaintenanceOrchestrator
 from cortex.repositories.changelog_repository import get_changelog_repository
 from cortex.repositories.architecture_repository import get_architecture_repository
@@ -45,6 +47,7 @@ class MaintenanceAgent(DecisionAgent):
         """
         super().__init__(llm_client, specialization="maintenance")
         self.orchestrator = MaintenanceOrchestrator()
+        self.memory = get_agent_memory('maintenance', 'maintenance')
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -317,6 +320,8 @@ class MaintenanceAgent(DecisionAgent):
         Returns:
             Dict avec résultats d'exécution par action
         """
+        start_time = time.time()
+
         try:
             changelog_repo = get_changelog_repository()
             arch_repo = get_architecture_repository()
@@ -459,7 +464,9 @@ class MaintenanceAgent(DecisionAgent):
             print(f"  Success Rate: {success_rate*100:.1f}%")
             print(f"{'='*70}\n")
 
-            return {
+            duration = time.time() - start_time
+
+            result = {
                 'success': len(failed_actions) == 0,
                 'action': 'execute_harmonization_plan',
                 'plan_title': plan.get('title'),
@@ -475,13 +482,56 @@ class MaintenanceAgent(DecisionAgent):
                 'cost': 0.0  # MaintenanceAgent doesn't use LLM
             }
 
+            # Enregistrer dans la mémoire
+            self.memory.record_execution(
+                request=f"Execute harmonization plan: {plan.get('title', 'Untitled')}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Mettre à jour l'état avec le dernier plan exécuté
+            self.memory.update_state({
+                'last_plan_id': plan.get('adr_id'),
+                'last_plan_title': plan.get('title'),
+                'last_execution_timestamp': datetime.now().isoformat(),
+                'last_success_rate': success_rate
+            })
+
+            # Détecter et enregistrer patterns
+            if len(failed_actions) > 0:
+                # Pattern: types d'actions qui échouent
+                for failed in failed_actions:
+                    action_type = failed['action'].get('action_type')
+                    self.memory.add_pattern(
+                        f'failed_action_{action_type}',
+                        {
+                            'action_type': action_type,
+                            'target': failed['action'].get('target'),
+                            'error': failed['error']
+                        }
+                    )
+
+            return result
+
         except Exception as e:
-            return {
+            duration = time.time() - start_time
+            error_result = {
                 'success': False,
                 'action': 'execute_harmonization_plan',
                 'error': f"Plan execution failed: {str(e)}",
                 'cost': 0.0
             }
+
+            # Enregistrer l'échec dans la mémoire
+            self.memory.record_execution(
+                request=f"Execute harmonization plan: {plan.get('title', 'Error')}",
+                result=error_result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return error_result
 
     def _execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """

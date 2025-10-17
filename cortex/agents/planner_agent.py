@@ -14,11 +14,14 @@ Responsabilités:
 
 from typing import List, Dict, Any, Optional, Tuple
 import json
+import time
+from datetime import datetime
 
 from cortex.core.llm_client import LLMClient
 from cortex.core.model_router import ModelTier
 from cortex.core.todo_manager import TodoManager, TodoTask
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
+from cortex.core.agent_memory import get_agent_memory
 
 
 class PlannerAgent(DecisionAgent):
@@ -35,6 +38,7 @@ class PlannerAgent(DecisionAgent):
         # Initialiser DecisionAgent avec spécialisation "planning"
         super().__init__(llm_client, specialization="planning")
         self.todo_manager = todo_manager
+        self.memory = get_agent_memory('execution', 'planner')
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -186,6 +190,8 @@ Réponds UNIQUEMENT avec un JSON:
         Returns:
             Dict avec le plan et les tâches créées
         """
+        start_time = time.time()
+
         planning_prompt = f"""Tu es un expert en planification de projets de développement.
 
 REQUÊTE UTILISATEUR:
@@ -259,7 +265,7 @@ IMPORTANT: Sois précis et concret. Chaque tâche doit être ACTIONABLE."""
                 created_tasks.append(task)
                 task_id_map[idx] = task.id
 
-            return {
+            result = {
                 'success': True,
                 'plan_summary': plan_data['plan_summary'],
                 'tasks_created': len(created_tasks),
@@ -268,11 +274,56 @@ IMPORTANT: Sois précis et concret. Chaque tâche doit être ACTIONABLE."""
                 'cost': response.cost
             }
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Create plan: {user_request[:100]}",
+                result=result,
+                duration=duration,
+                cost=response.cost
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_plan_timestamp': datetime.now().isoformat(),
+                'last_plan_summary': plan_data['plan_summary'][:200],
+                'total_tasks_created': len(created_tasks)
+            })
+
+            # Detect patterns in task tiers
+            tier_counts = {}
+            for task_spec in plan_data['tasks']:
+                tier = task_spec['min_tier']
+                tier_counts[tier] = tier_counts.get(tier, 0) + 1
+
+            for tier, count in tier_counts.items():
+                self.memory.add_pattern(
+                    f'tier_usage_{tier}',
+                    {
+                        'tier': tier,
+                        'count': count,
+                        'request_type': user_request[:50]
+                    }
+                )
+
+            return result
+
         except Exception as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'success': False,
                 'error': f"Failed to create plan: {str(e)}"
             }
+
+            # Record failure to memory
+            self.memory.record_execution(
+                request=f"Create plan: {user_request[:100]}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
 
     def add_single_task_from_request(
         self,
@@ -290,6 +341,8 @@ IMPORTANT: Sois précis et concret. Chaque tâche doit être ACTIONABLE."""
         Returns:
             La tâche créée
         """
+        start_time = time.time()
+
         # Analyser la requête pour déterminer le tier minimum
         analysis_prompt = f"""Analyse cette requête et détermine le tier minimum requis.
 
@@ -330,15 +383,51 @@ Réponds avec un JSON:
                 min_tier=tier
             )
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Add single task: {user_request[:100]}",
+                result={'success': True, 'task_id': task.id, 'tier': tier_str},
+                duration=duration,
+                cost=0.0
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_single_task_timestamp': datetime.now().isoformat(),
+                'last_task_description': result['description'][:100]
+            })
+
+            # Detect patterns in single task tier usage
+            self.memory.add_pattern(
+                f'single_task_tier_{tier_str}',
+                {
+                    'tier': tier_str,
+                    'reason': result.get('reason', ''),
+                    'request_type': user_request[:50]
+                }
+            )
+
             return task
 
-        except Exception:
+        except Exception as e:
             # Fallback: utiliser DeepSeek par défaut
+            duration = time.time() - start_time
+
             task = self.todo_manager.add_task(
                 description=user_request,
                 context=context if context else user_request,
                 min_tier=ModelTier.DEEPSEEK
             )
+
+            # Record fallback to memory
+            self.memory.record_execution(
+                request=f"Add single task (fallback): {user_request[:100]}",
+                result={'success': True, 'task_id': task.id, 'tier': 'deepseek', 'fallback': True},
+                duration=duration,
+                cost=0.0
+            )
+
             return task
 
 

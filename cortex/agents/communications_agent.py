@@ -25,9 +25,11 @@ Déclenché:
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import time
 from cortex.core.llm_client import LLMClient, ModelTier
 from cortex.core.agent_hierarchy import DecisionAgent, AgentRole, AgentResult, EscalationContext
 from cortex.services.log_filter_service import get_log_filter_service
+from cortex.core.agent_memory import get_agent_memory
 
 
 class CommunicationsAgent(DecisionAgent):
@@ -42,6 +44,7 @@ class CommunicationsAgent(DecisionAgent):
         """
         super().__init__(llm_client, specialization="communications")
         self.log_filter = get_log_filter_service()
+        self.memory = get_agent_memory('communication', 'communications')
 
     def craft_recommendation(
         self,
@@ -56,6 +59,8 @@ class CommunicationsAgent(DecisionAgent):
         Returns:
             Recommandation formatée pour l'utilisateur
         """
+        start_time = time.time()
+
         prompt = f"""Tu es un expert en communication technique.
 Tu dois expliquer clairement à l'utilisateur ce qui peut être fait.
 
@@ -101,12 +106,39 @@ Sois concis (max 150 mots) mais informatif."""
             temperature=0.8
         )
 
-        return {
+        result = {
             "recommendation_ready": True,
             "message": response.content,
             "model_used": response.model,
             "cost": response.cost
         }
+
+        # Record to memory
+        duration = time.time() - start_time
+        self.memory.record_execution(
+            request=f"Craft recommendation: {tooler_request.get('capability_needed', 'Unknown')}",
+            result=result,
+            duration=duration,
+            cost=response.cost
+        )
+
+        # Update state
+        self.memory.update_state({
+            'last_recommendation_timestamp': datetime.now().isoformat(),
+            'last_capability_needed': tooler_request.get('capability_needed')
+        })
+
+        # Detect patterns in capability types
+        self.memory.add_pattern(
+            f'capability_needed_{tooler_request.get("capability_needed", "unknown")}',
+            {
+                'capability': tooler_request.get('capability_needed'),
+                'tone': tooler_request.get('tone'),
+                'user_request': tooler_request.get('user_request', '')[:100]
+            }
+        )
+
+        return result
 
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -189,6 +221,8 @@ Sois concis (max 150 mots) mais informatif."""
                 - alternatives: Alternatives considérées
                 - feedback_prompt: Question pour feedback utilisateur
         """
+        start_time = time.time()
+
         try:
             print(f"\n{'='*70}")
             print(f"💬 COMMUNICATIONS AGENT - Workflow Summary")
@@ -237,7 +271,7 @@ Sois concis (max 150 mots) mais informatif."""
             print(f"  Alternatives found: {len(alternatives)}")
             print(f"{'='*70}\n")
 
-            return {
+            result = {
                 'success': True,
                 'action': 'summarize_workflow',
                 'summary': summary_text,
@@ -249,13 +283,54 @@ Sois concis (max 150 mots) mais informatif."""
                 'cost': 0.0001  # NANO cost estimate
             }
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Summarize workflow: {len(logs)} logs analyzed",
+                result=result,
+                duration=duration,
+                cost=result['cost']
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_summary_timestamp': datetime.now().isoformat(),
+                'logs_analyzed': len(logs),
+                'key_decisions_count': len(key_decisions),
+                'alternatives_count': len(alternatives)
+            })
+
+            # Detect patterns in workflow types
+            agents_involved = set(log.get('author', 'Unknown') for log in logs)
+            for agent in agents_involved:
+                self.memory.add_pattern(
+                    f'agent_involved_{agent}',
+                    {
+                        'agent': agent,
+                        'logs_count': sum(1 for log in logs if log.get('author') == agent)
+                    }
+                )
+
+            return result
+
         except Exception as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'success': False,
                 'action': 'summarize_workflow',
                 'error': f"Workflow summary failed: {str(e)}",
                 'cost': 0.0
             }
+
+            # Record failure to memory
+            self.memory.record_execution(
+                request="Summarize workflow",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
 
     def _analyze_thinking(self, logs: List[Dict]) -> Dict[str, Any]:
         """
@@ -452,6 +527,8 @@ Voici les décisions clés prises par Cortex:
         Returns:
             Dict avec explication détaillée
         """
+        start_time = time.time()
+
         try:
             # Récupérer les logs thinking
             logs = self.log_filter.get_agent_thinking_logs(
@@ -482,7 +559,7 @@ Voici les décisions clés prises par Cortex:
 
 **Rationale:** Cette décision a été prise pour {recent_decision.get('description')}"""
 
-            return {
+            result = {
                 'success': True,
                 'action': 'explain_decision',
                 'explanation': explanation,
@@ -490,13 +567,51 @@ Voici les décisions clés prises par Cortex:
                 'cost': 0.0
             }
 
+            # Record to memory
+            duration = time.time() - start_time
+            self.memory.record_execution(
+                request=f"Explain decision: {recent_decision.get('author', 'Unknown')}",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            # Update state
+            self.memory.update_state({
+                'last_explanation_timestamp': datetime.now().isoformat(),
+                'last_decision_explained': recent_decision.get('description', '')[:100]
+            })
+
+            # Detect patterns in decision types explained
+            self.memory.add_pattern(
+                f'decision_type_{recent_decision.get("change_type", "unknown")}',
+                {
+                    'agent': recent_decision.get('author'),
+                    'change_type': recent_decision.get('change_type'),
+                    'impact': recent_decision.get('impact_level')
+                }
+            )
+
+            return result
+
         except Exception as e:
-            return {
+            duration = time.time() - start_time
+            result = {
                 'success': False,
                 'action': 'explain_decision',
                 'error': f"Decision explanation failed: {str(e)}",
                 'cost': 0.0
             }
+
+            # Record failure to memory
+            self.memory.record_execution(
+                request="Explain decision",
+                result=result,
+                duration=duration,
+                cost=0.0
+            )
+
+            return result
 
 
 def create_communications_agent(llm_client: LLMClient) -> CommunicationsAgent:
