@@ -300,16 +300,183 @@ render_markdown("# Test")
 
 ---
 
+## 4. 🎨 Advanced Theme System
+
+Beautiful, customizable themes for personalization.
+
+**Available Themes:**
+- **dark** (default) - Classic dark terminal theme
+- **light** - Light, high contrast theme
+- **matrix** - Green-on-black Matrix aesthetic
+- **ocean** - Blue/cyan oceanic theme
+- **sunset** - Warm orange/yellow sunset theme
+- **cyberpunk** - Neon magenta/yellow cyberpunk aesthetic
+
+**Usage:**
+```bash
+cortex ❯ theme              # Show current theme
+cortex ❯ theme list         # List all themes
+cortex ❯ theme matrix       # Switch to matrix theme
+```
+
+**Example:**
+```bash
+cortex ❯ theme list
+
+🎨 Available Themes
+──────────────────
+  ● dark (current)
+  ○ light
+  ○ matrix
+  ○ ocean
+  ○ sunset
+  ○ cyberpunk
+
+cortex ❯ theme cyberpunk
+✓ Theme changed to 'cyberpunk'
+
+  Preview:
+  [Shows colored examples of theme styles]
+```
+
+---
+
+### 5. 🔔 Notification System
+
+Track important events and system changes with notifications.
+
+**Features:**
+- Toast-style popup notifications
+- Persistent notification history
+- Unread notification counter
+- Timestamped notification log
+- Multiple notification types (info, success, warning, error, task_complete)
+
+**Usage:**
+```bash
+cortex ❯ notifications      # View all notifications
+cortex ❯ notifs             # Short alias
+```
+
+**Example:**
+```bash
+cortex ❯ notifications
+
+📬 Notifications
+───────────────
+
+📬 3 unread notification(s)
+
+┏━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ ID ┃ Type          ┃ Title         ┃ Message                  ┃ Time   ┃
+┡━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ 2  │ success       │ Task Complete │ Analysis finished        │ 2m ago │
+│ 1  │ info          │ Theme Changed │ Now using 'matrix'       │ 5m ago │
+│ 0  │ info          │ System        │ Cortex initialized       │ 8m ago │
+└────┴───────────────┴───────────────┴──────────────────────────┴────────┘
+```
+
+**Where notifications appear:**
+- Theme changes
+- Background task completion
+- System events
+- Optimization updates
+- Warning/error alerts
+
+---
+
+### 6. 📊 Multi-step Progress Bars
+
+Visual feedback for complex operations with multiple stages.
+
+**Features:**
+- Animated progress bars with spinner
+- Per-step progress tracking
+- Time remaining estimation
+- Completion checkmarks
+- Custom step descriptions
+
+**Usage (programmatic):**
+```python
+from cortex.cli.advanced_ui import MultiStepProgress
+
+with MultiStepProgress() as progress:
+    # Step 1
+    step1 = progress.add_step("Loading data", total=100)
+    for i in range(100):
+        progress.update(step1, i)
+    progress.complete_step(step1)
+
+    # Step 2
+    step2 = progress.add_step("Processing", total=50)
+    for i in range(50):
+        progress.update(step2, i)
+    progress.complete_step(step2)
+```
+
+**Example output:**
+```
+⠋ Loading data    ━━━━━━━━━━━━━━━━━━━━ 45% 0:00:12
+⏸ Processing      ━━━━━━━━━━░░░░░░░░░░  0% 0:00:00
+```
+
+---
+
+### 7. 🔍 Advanced Expansion Modes
+
+Smart content expansion with multiple viewing modes.
+
+**Modes:**
+- **preview** - First N lines with expand hint
+- **summary** - First + last few lines (great for logs)
+- **full** - Complete content
+
+**Usage:**
+```bash
+cortex ❯ expand 0              # Cycle through modes
+cortex ❯ expand 0 preview      # Show preview
+cortex ❯ expand 0 summary      # Show summary
+cortex ❯ expand 0 full         # Show everything
+cortex ❯ e 0                   # Short alias
+```
+
+**Example:**
+```bash
+# Preview mode
+Line 1
+Line 2
+...
+Line 10
+
+... 90 more lines.
+Commands:
+  expand 0 or e 0 - Show full content
+  summary 0 - Show summary
+
+# Summary mode
+Line 1
+Line 2
+Line 3
+
+... omitted ...
+
+Line 98
+Line 99
+Line 100
+```
+
+---
+
 ## Future Enhancements
 
 Planned improvements:
 
-- [ ] Keyboard shortcut `Ctrl+E` (instead of typing `expand`)
-- [ ] Multiple expand modes (full, preview, summary)
-- [ ] Expandable sections within responses
-- [ ] Progress bars for multi-step operations
-- [ ] Notifications for background tasks
-- [ ] Custom themes and color schemes
+- [ ] Keyboard shortcut `Ctrl+E` (requires prompt_toolkit integration)
+- [ ] Real-time notification updates
+- [ ] Interactive theme picker
+- [ ] Custom color customization
+- [ ] Exportable notification log
+- [ ] Notification filtering/search
 
 ---
 

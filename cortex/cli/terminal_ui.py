@@ -412,8 +412,28 @@ def show_help(ui: Optional[TerminalUI] = None):
         ("exit", "Exit Cortex"),
     ]
 
+    print("  " + ui.color("Core Commands:", Color.YELLOW, bold=True))
+    print()
+
     for cmd, desc in commands:
         print(f"  {ui.color(cmd, Color.CYAN, bold=True):30s} {desc}")
+
+    print()
+
+    # UX Enhancement commands
+    print("  " + ui.color("UX & Display:", Color.YELLOW, bold=True))
+    print()
+
+    ux_commands = [
+        ("theme", "Show current theme"),
+        ("theme list", "List all available themes"),
+        ("theme <name>", "Change theme (dark/light/matrix/ocean/sunset/cyberpunk)"),
+        ("expand <id> [mode]", "Expand/collapse content (modes: preview/summary/full)"),
+        ("notifications", "Show notification history"),
+    ]
+
+    for cmd, desc in ux_commands:
+        print(f"  {ui.color(cmd, Color.MAGENTA, bold=True):30s} {desc}")
 
     print()
 

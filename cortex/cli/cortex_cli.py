@@ -32,6 +32,15 @@ from cortex.cli.display_helpers import (
     display_collapsible,
     get_collapsible_manager
 )
+from cortex.cli.advanced_ui import (
+    CortexTheme,
+    get_theme_manager,
+    get_notification_manager,
+    get_advanced_collapsible_manager,
+    ExpansionMode,
+    MultiStepProgress,
+    NotificationType
+)
 
 # Cortex core components
 from cortex.core.llm_client import LLMClient
@@ -70,6 +79,11 @@ class CortexCLI:
         self.ui = TerminalUI()
         self.running = True
         self.history: List[str] = []
+
+        # Advanced UI managers
+        self.theme_manager = get_theme_manager()
+        self.notification_manager = get_notification_manager()
+        self.advanced_collapsible = get_advanced_collapsible_manager()
 
         # Real LLM components
         self.llm_client = LLMClient()
@@ -258,11 +272,23 @@ class CortexCLI:
 
         elif cmd == "expand" or cmd == "e":
             # Expand/collapse content
-            if not args or not args.isdigit():
-                self.ui.error("Usage: expand <content_id>  (or just: e <id>)")
-                self.ui.info("Example: expand 0")
+            if not args:
+                self.ui.error("Usage: expand <content_id> [mode]  (or just: e <id>)")
+                self.ui.info("Example: expand 0 preview")
+                self.ui.info("Modes: preview, summary, full")
             else:
-                self.cmd_expand(int(args))
+                self.cmd_expand(args)
+
+        elif cmd == "theme":
+            if not args:
+                self.cmd_theme_current()
+            elif args.lower() == "list":
+                self.cmd_theme_list()
+            else:
+                self.cmd_theme_set(args.lower())
+
+        elif cmd == "notifications" or cmd == "notifs":
+            self.cmd_notifications()
 
         else:
             # Not a recognized command - treat as natural language task
@@ -1409,10 +1435,127 @@ Total Cost: ${sum(self.costs.values()):.6f}
             self.ui.error(f"Unknown QC command: {sub_cmd}")
             self.ui.info("Available: qc audit, qc report, qc logs")
 
-    def cmd_expand(self, content_id: int):
-        """Expand/collapse content by ID"""
-        manager = get_collapsible_manager()
-        manager.toggle(content_id)
+    def cmd_expand(self, args: str):
+        """
+        Expand/collapse content by ID with optional mode
+
+        Args:
+            args: "<content_id> [mode]" where mode is preview/summary/full
+        """
+        parts = args.split()
+
+        if not parts[0].isdigit():
+            self.ui.error("Content ID must be a number")
+            return
+
+        content_id = int(parts[0])
+        mode = None
+
+        if len(parts) > 1:
+            mode_str = parts[1].lower()
+            if mode_str == "preview":
+                mode = ExpansionMode.PREVIEW
+            elif mode_str == "summary":
+                mode = ExpansionMode.SUMMARY
+            elif mode_str == "full":
+                mode = ExpansionMode.FULL
+            else:
+                self.ui.error(f"Invalid mode: {mode_str}")
+                self.ui.info("Valid modes: preview, summary, full")
+                return
+
+        # Try basic collapsible manager first
+        basic_manager = get_collapsible_manager()
+        if content_id in basic_manager.collapsed_contents:
+            basic_manager.toggle(content_id)
+        else:
+            # Try advanced collapsible manager
+            try:
+                if mode:
+                    self.advanced_collapsible.display(content_id, mode)
+                else:
+                    # Cycle through modes
+                    self.advanced_collapsible.cycle_mode(content_id)
+            except KeyError:
+                self.ui.error(f"No collapsed content with ID {content_id}")
+
+    def cmd_theme_current(self):
+        """Show current theme"""
+        self.ui.header("🎨 Current Theme", level=2)
+        current = self.theme_manager.current_theme
+        print(f"  {self.ui.color('Active:', Color.CYAN)} {self.ui.color(current.value, Color.WHITE, bold=True)}")
+        print()
+        print(f"  {self.ui.color('💡 Tip:', Color.YELLOW)} Use {self.ui.color('theme list', Color.GREEN)} to see all themes")
+        print(f"  {self.ui.color('💡 Tip:', Color.YELLOW)} Use {self.ui.color('theme <name>', Color.GREEN)} to change theme")
+
+    def cmd_theme_list(self):
+        """List all available themes"""
+        self.ui.header("🎨 Available Themes", level=2)
+
+        for theme in CortexTheme:
+            is_current = theme == self.theme_manager.current_theme
+            marker = "●" if is_current else "○"
+            name = theme.value
+
+            if is_current:
+                print(f"  {self.ui.color(marker, Color.GREEN)} {self.ui.color(name, Color.WHITE, bold=True)} {self.ui.color('(current)', Color.GREEN)}")
+            else:
+                print(f"  {marker} {name}")
+
+        print()
+        print(f"  {self.ui.color('Usage:', Color.CYAN)} theme <name>")
+        print(f"  {self.ui.color('Example:', Color.BRIGHT_BLACK)} theme matrix")
+
+    def cmd_theme_set(self, theme_name: str):
+        """
+        Change theme
+
+        Args:
+            theme_name: Name of theme to activate
+        """
+        try:
+            # Find theme by name
+            theme = None
+            for t in CortexTheme:
+                if t.value == theme_name:
+                    theme = t
+                    break
+
+            if not theme:
+                self.ui.error(f"Theme '{theme_name}' not found")
+                self.ui.info("Use 'theme list' to see available themes")
+                return
+
+            # Set theme
+            self.theme_manager.set_theme(theme)
+            self.ui.success(f"✓ Theme changed to '{theme_name}'")
+
+            # Show preview
+            print()
+            print(f"  {self.ui.color('Preview:', Color.CYAN)}")
+            self.theme_manager.preview_theme(theme)
+
+            # Send notification
+            self.notification_manager.notify(
+                "Theme Changed",
+                f"Now using '{theme_name}' theme",
+                type=NotificationType.INFO
+            )
+
+        except Exception as e:
+            self.ui.error(f"Failed to change theme: {str(e)}")
+
+    def cmd_notifications(self):
+        """Show notification history"""
+        self.ui.header("📬 Notifications", level=2)
+
+        unread_count = self.notification_manager.show_unread_count()
+
+        if unread_count == 0:
+            self.ui.info("No unread notifications")
+
+        print()
+        self.notification_manager.show_all()
 
     def cmd_optimize(self):
         """Process optimization queue"""
