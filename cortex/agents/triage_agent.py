@@ -92,35 +92,39 @@ class TriageAgent(DecisionAgent):
         cache_hits = context.get('cache_hits', []) if context else []
         has_cache = len(cache_hits) > 0
 
-        triage_prompt = f"""Tu es un agent de triage ultra-rapide. Analyse cette requête et décide du routage optimal.
+        triage_prompt = f"""Tu es le PREMIER FILTRE du système. Analyse cette requête et décide du routage optimal.
 
 REQUÊTE: "{user_request}"
 
 CACHE: {"✓ Cache hits disponibles" if has_cache else "✗ Pas de cache"}
 
-CRITÈRES pour ROUTE DIRECTE (répondre immédiatement):
-- Conversation simple (salutation, question générale)
-- Requête d'information simple (définition, explication)
-- Pas d'outils nécessaires
+TU AS 3 ROUTES POSSIBLES:
 
-CRITÈRES pour ROUTE EXPERT:
-- Utilise des outils (fichiers, git, web, etc.)
-- Analyse ou génération de contenu
-- Raisonnement approfondi nécessaire
+1. ROUTE "planner" (demande de PLANIFICATION):
+   - Contient "planifie", "crée un plan", "décompose", "organise"
+   - Demande EXPLICITE de créer une roadmap
+   - Demande d'organiser un projet complexe
+   → Escalade vers Planner Agent (modèle moyen)
 
-CRITÈRES pour needs_context (besoin de Context Agent):
-- true: Besoin de comprendre le code/architecture existante
-- true: Analyse de dépendances ou impacts
-- true: Modification de code existant
-- false: Action simple (delete, read, list fichiers)
-- false: Création de nouveau contenu
-- false: Opération git simple
+2. ROUTE "direct" (réponse immédiate sans outils):
+   - Conversation simple (salutation, question générale)
+   - Requête d'information simple
+   - Pas d'outils nécessaires
+   → Réponse directe
 
-IMPORTANT: Une simple opération de fichier (delete, read, search) ne nécessite PAS de contexte!
+3. ROUTE "expert" (besoin d'outils):
+   - Utilise des outils (fichiers, git, web)
+   - Analyse ou génération de contenu
+   - Action concrète nécessaire
+   → Task Executor avec outils
+
+Pour ROUTE "expert", évalue needs_context:
+- true: Modification code existant, analyse architecture
+- false: Action simple (delete, read, search, create nouveau fichier)
 
 Réponds UNIQUEMENT avec un JSON:
 {{
-  "route": "direct|expert",
+  "route": "planner|direct|expert",
   "confidence": 0.0-1.0,
   "reason": "explication courte",
   "needs_context": true/false,
@@ -153,6 +157,13 @@ Réponds UNIQUEMENT avec un JSON:
             # Fallback: heuristiques simples
             user_lower = user_request.lower()
 
+            # Mots-clés pour planification
+            planning_keywords = [
+                'planifie', 'planifier', 'plan',
+                'décompose', 'organise', 'structure',
+                'roadmap', 'étapes', 'phases'
+            ]
+
             # Mots-clés pour actions nécessitant tools
             action_keywords = [
                 'create', 'crée', 'make', 'fais',
@@ -171,11 +182,24 @@ Réponds UNIQUEMENT avec un JSON:
                 'explain', 'explique'
             ]
 
-            # Détecter si simple
+            # Détecter le type de requête
+            is_planning = any(kw in user_lower for kw in planning_keywords)
             is_simple = any(kw in user_lower for kw in simple_keywords)
             needs_action = any(kw in user_lower for kw in action_keywords)
 
-            if is_simple and not needs_action:
+            # Priorité 1: Planification
+            if is_planning:
+                return {
+                    'route': 'planner',
+                    'confidence': 0.75,
+                    'reason': 'Planning request detected',
+                    'needs_context': False,
+                    'complexity': 'medium',
+                    'enhanced_request': user_request,
+                    'cost': 0.0
+                }
+            # Priorité 2: Conversation simple
+            elif is_simple and not needs_action:
                 return {
                     'route': 'direct',
                     'confidence': 0.7,
@@ -185,12 +209,13 @@ Réponds UNIQUEMENT avec un JSON:
                     'enhanced_request': user_request,
                     'cost': 0.0
                 }
+            # Priorité 3: Action avec tools
             else:
                 return {
                     'route': 'expert',
                     'confidence': 0.6,
                     'reason': 'Action or complex analysis needed',
-                    'needs_context': True,
+                    'needs_context': needs_action and 'code' in user_lower,
                     'complexity': 'medium',
                     'enhanced_request': user_request,
                     'cost': 0.0

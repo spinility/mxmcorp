@@ -403,24 +403,9 @@ Total Cost: ${sum(self.costs.values()):.6f}
         start_time = time.time()
 
         try:
-            # Step 0: Check if this is a planning request
-            with LoadingSpinner("👤 Planner Agent - Détection de planification") as spinner:
-                is_planning, confidence = self.planner_agent.is_planning_request(description)
-
-            if is_planning and confidence > 0.6:
-                print(f"  {self.ui.color('✓ Planification détectée!', Color.GREEN)} (confiance: {confidence:.2f})")
-                print()
-                self._handle_planning_request(description)
-                return
-
-            print(f"  {self.ui.color('→ Exécution directe', Color.CYAN)} (confiance planification: {confidence:.2f})")
-            print()
-
-            # Step 1: Model selection
-            selection = self.model_router.select_model(description)
-
-            # Step 2: Triage - Decide if we need Context Agent or can respond directly
-            with LoadingSpinner(f"👤 Triage Agent - Routage ({selection.model_name})") as spinner:
+            # Step 1: Triage (PREMIER FILTRE - détecte planification, direct ou expert)
+            with LoadingSpinner(f"👤 Triage Agent - Analyse de la requête") as spinner:
+                selection = self.model_router.select_model(description)
                 triage_decision = self.triage_agent.triage_request(description)
 
             print(f"  {self.ui.color('✓ Route:', Color.GREEN)} {self.ui.color(triage_decision['route'].upper(), Color.CYAN)} (confiance: {triage_decision['confidence']:.2f})")
@@ -429,6 +414,23 @@ Total Cost: ${sum(self.costs.values()):.6f}
 
             # Update costs
             self.total_cost += triage_decision.get('cost', 0.0)
+
+            # Route 1: PLANNER (demande de planification)
+            if triage_decision['route'] == 'planner':
+                print(f"  {self.ui.color('→ Escalade vers Planner Agent', Color.MAGENTA)}")
+                print()
+                self._handle_planning_request(description)
+                return
+
+            # Route 2: DIRECT (conversation simple sans outils)
+            if triage_decision['route'] == 'direct':
+                # TODO: Implémenter réponse directe sans Context/Tools
+                print(f"  {self.ui.color('→ Réponse directe (sans outils)', Color.CYAN)}")
+                print()
+                # Pour l'instant, on continue avec le workflow expert
+                pass
+
+            # Route 3: EXPERT (besoin d'outils)
 
             # Step 3: Context Agent - Only if needed
             context_result = {'context': '', 'metadata': {'context_needed': {'needed': False, 'reason': 'Triage decided direct response', 'confidence': 1.0}, 'cache_hits': [], 'git_diff_included': False, 'total_cost': 0.0}}
