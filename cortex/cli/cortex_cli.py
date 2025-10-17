@@ -834,7 +834,7 @@ Total Cost: ${sum(self.costs.values()):.6f}
             return
 
         # Step 1: Only call Tooler if no department matches
-        print(f"{self.ui.color('👤 Tooler Agent - Recherche d\'outils', Color.BRIGHT_CYAN)}")
+        print(self.ui.color("👤 Tooler Agent - Recherche d'outils", Color.BRIGHT_CYAN))
         print()
 
         try:
