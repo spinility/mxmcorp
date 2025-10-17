@@ -14,9 +14,11 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
+import time
 
 from cortex.core.llm_client import LLMClient
 from cortex.core.model_router import ModelTier
+from cortex.database import get_database_manager
 
 
 class AgentRole(Enum):
@@ -101,6 +103,15 @@ class BaseAgent(ABC):
         self.escalation_threshold = escalation_threshold
         self.execution_history: List[AgentResult] = []
 
+        # Intelligence Database pour auto-tracking
+        try:
+            self.db = get_database_manager()
+        except Exception as e:
+            # Si DB non disponible, continuer sans tracking
+            self.db = None
+            import warnings
+            warnings.warn(f"Database not available for agent tracking: {e}")
+
     @abstractmethod
     def can_handle(self, request: str, context: Optional[Dict] = None) -> float:
         """
@@ -173,6 +184,60 @@ class BaseAgent(ABC):
             partial_results=partial_results,
             total_cost=sum(r.cost for r in self.execution_history)
         )
+
+    def _track_execution(self, result: AgentResult, response_time: float):
+        """
+        Track agent execution metrics dans la base de données
+        Appelé automatiquement après chaque execute()
+
+        Args:
+            result: Résultat de l'exécution
+            response_time: Temps de réponse en secondes
+        """
+        if self.db is None:
+            return  # Pas de DB disponible
+
+        try:
+            # Obtenir le nom de la classe (ex: TriageAgent, TaskExecutor)
+            agent_name = self.__class__.__name__
+
+            # Tracker les métriques
+            self.db.update_agent_metrics(
+                agent_name=agent_name,
+                cost=result.cost,
+                response_time=response_time,
+                success=result.success
+            )
+        except Exception as e:
+            # Ne pas bloquer l'exécution si tracking échoue
+            import warnings
+            warnings.warn(f"Failed to track agent execution: {e}")
+
+    def execute_with_tracking(
+        self,
+        request: str,
+        context: Optional[Dict] = None,
+        escalation_context: Optional[EscalationContext] = None
+    ) -> AgentResult:
+        """
+        Wrapper autour de execute() qui track automatiquement les métriques
+        Utilisez cette méthode au lieu de execute() directement
+        """
+        start_time = time.time()
+
+        # Exécuter la requête
+        result = self.execute(request, context, escalation_context)
+
+        # Calculer le temps de réponse
+        response_time = time.time() - start_time
+
+        # Ajouter à l'historique
+        self.execution_history.append(result)
+
+        # Tracker dans la DB automatiquement
+        self._track_execution(result, response_time)
+
+        return result
 
 
 class ExecutionAgent(BaseAgent):

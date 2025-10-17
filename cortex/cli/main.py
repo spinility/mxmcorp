@@ -25,6 +25,8 @@ try:
     from cortex.core.llm_client import LLMClient
     from cortex.tools.tool_executor import ToolExecutor
     from cortex.tools.builtin_tools import get_all_builtin_tools
+    from cortex.database import get_database_manager
+    from cortex.core.auto_sync import get_auto_sync_manager
 except ImportError:
     print("Error: Unable to import cortex modules")
     print("Make sure you're running from the project root directory")
@@ -73,6 +75,16 @@ class CortexCLI:
         self.conversation_history = []
         self.total_cost = 0.0
         self.total_tokens = 0
+
+        # Intelligence Database pour auto-tracking
+        try:
+            self.db = get_database_manager()
+            # Auto-sync manager (synchronisation DB <-> MD en arrière-plan)
+            self.auto_sync = get_auto_sync_manager()
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: Database not available: {e}[/yellow]")
+            self.db = None
+            self.auto_sync = None
 
     def run(self):
         """Lance la boucle principale du CLI"""
@@ -195,6 +207,25 @@ class CortexCLI:
         # Mettre à jour les statistiques
         self.total_cost += cost
         self.total_tokens += int(tokens_in + tokens_out)
+
+        # Tracker dans la base de données (auto-tracking)
+        if self.db:
+            try:
+                # Logger la requête comme agent "CLI" (interface directe)
+                self.db.update_agent_metrics(
+                    agent_name="DirectCLI",
+                    cost=cost,
+                    response_time=0.0,  # TODO: tracker le temps réel
+                    success=True
+                )
+
+                # Incrémenter compteur pour auto-sync (sync périodique en arrière-plan)
+                if self.auto_sync:
+                    self.auto_sync.increment_request()
+
+            except Exception as e:
+                # Ne pas bloquer si tracking échoue
+                pass
 
         if self.display_settings.get("show_cost", True):
             self.console.print(
